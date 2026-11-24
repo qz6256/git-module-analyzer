@@ -5,78 +5,84 @@ import MainLayout from '@/layouts/MainLayout.vue'
 
 const routes: RouteRecordRaw[] = [
   {
+    path: '/',
+    name: 'landing',
+    component: () => import('@/views/Landing.vue'),
+    meta: { public: true, title: '首页' },
+  },
+  {
     path: '/login',
     name: 'login',
     component: () => import('@/views/Login.vue'),
     meta: { public: true, title: '登录' },
   },
+  // 后台布局：父路径仅作容器，子路由用绝对路径保持 /projects 等 URL 不变
   {
-    path: '/',
+    path: '/app',
     component: MainLayout,
-    redirect: '/projects',
     children: [
       {
-        path: 'projects',
+        path: '/projects',
         name: 'projects',
         component: () => import('@/views/Projects.vue'),
         meta: { title: '项目工作台' },
       },
       {
-        path: 'projects/:id',
+        path: '/projects/:id',
         name: 'project-detail',
         component: () => import('@/views/ProjectDetail.vue'),
         meta: { title: '项目详情' },
       },
       {
-        path: 'modules',
+        path: '/modules',
         name: 'modules',
         component: () => import('@/views/Modules.vue'),
         meta: { title: '模块清单' },
       },
       {
-        path: 'modules/:id',
+        path: '/modules/:id',
         name: 'module-detail',
         component: () => import('@/views/ModuleDetail.vue'),
         meta: { title: '模块档案' },
       },
       {
-        path: 'files',
+        path: '/files',
         name: 'files',
         component: () => import('@/views/Files.vue'),
         meta: { title: '文件检索' },
       },
       {
-        path: 'files/:id',
+        path: '/files/:id',
         name: 'file-detail',
         component: () => import('@/views/FileDetail.vue'),
         meta: { title: '文件档案' },
       },
       {
-        path: 'commits',
+        path: '/commits',
         name: 'commits',
         component: () => import('@/views/Commits.vue'),
         meta: { title: '提交检索' },
       },
       {
-        path: 'issues',
+        path: '/issues',
         name: 'issues',
         component: () => import('@/views/Issues.vue'),
         meta: { title: '需求与缺陷' },
       },
       {
-        path: 'issues/:id',
+        path: '/issues/:id',
         name: 'issue-detail',
         component: () => import('@/views/IssueDetail.vue'),
         meta: { title: '追溯详情' },
       },
       {
-        path: 'settings',
+        path: '/settings',
         name: 'settings',
         component: () => import('@/views/Settings.vue'),
         meta: { title: '系统设置' },
       },
       {
-        path: '403',
+        path: '/403',
         name: 'forbidden',
         component: () => import('@/views/Forbidden.vue'),
         meta: { title: '无权限' },
@@ -101,7 +107,10 @@ router.beforeEach(async (to) => {
   const auth = useAuthStore()
 
   if (to.meta.public) {
-    if (to.name === 'login' && auth.isAuthenticated) return { path: '/projects' }
+    // 已登录用户访问宣传页/登录页，直接进工作台
+    if ((to.name === 'login' || to.name === 'landing') && auth.isAuthenticated) {
+      return { path: '/projects' }
+    }
     return true
   }
 
