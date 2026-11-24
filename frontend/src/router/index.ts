@@ -76,6 +76,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '追溯详情' },
       },
       {
+        path: '/users/:id/commits',
+        name: 'user-commits',
+        component: () => import('@/views/UserCommits.vue'),
+        meta: { title: '用户提交' },
+      },
+      {
         path: '/settings',
         name: 'settings',
         component: () => import('@/views/Settings.vue'),

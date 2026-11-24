@@ -20,6 +20,16 @@ export interface Role {
   description?: string
 }
 
+export interface GitIdentity {
+  id: number
+  name: string
+  email: string
+  source?: 'auto' | 'manual'
+  commit_count?: number
+  last_seen_at?: string | null
+  user_id?: number | null
+}
+
 export interface User {
   id: number
   username: string
@@ -30,6 +40,7 @@ export interface User {
   last_login_at?: string | null
   created_at?: string
   roles?: Role[]
+  git_identity?: GitIdentity | null
 }
 
 export interface LoginRequest {
@@ -129,11 +140,15 @@ export interface Repository {
   repo_type?: RepoType
   default_branch?: string
   branches?: string[]
+  auth_type?: GitAuthType
+  has_credential?: boolean
   status?: RepoStatus
   status_message?: string
   last_analyzed_at?: string | null
   created_at?: string
 }
+
+export type GitAuthType = 'none' | 'token' | 'password' | 'ssh_key'
 
 export interface RepositoryCreateInput {
   name: string
@@ -143,6 +158,8 @@ export interface RepositoryCreateInput {
   source_type?: 'local' | 'remote'
   default_branch?: string
   branches?: string[]
+  auth_type?: GitAuthType
+  credential?: string
 }
 
 export interface RepositoryUpdateInput {
@@ -152,6 +169,8 @@ export interface RepositoryUpdateInput {
   source?: string
   default_branch?: string
   branches?: string[]
+  auth_type?: GitAuthType
+  credential?: string
 }
 
 export interface RecentActivity {

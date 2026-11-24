@@ -18,7 +18,7 @@ from ._paths import REPOS_DIR
 # 提交字段分隔符：用控制字符避免与 commit message 内容冲突
 FIELD_SEP = "\x1f"
 RECORD_SEP = "\x1e"
-GIT_LOG_FORMAT = f"%H{FIELD_SEP}%an{FIELD_SEP}%aI{FIELD_SEP}%B{RECORD_SEP}"
+GIT_LOG_FORMAT = f"%H{FIELD_SEP}%an{FIELD_SEP}%ae{FIELD_SEP}%aI{FIELD_SEP}%B{RECORD_SEP}"
 
 
 class GitError(RuntimeError):
@@ -31,6 +31,7 @@ class CommitInfo:
     author: str
     committed_at: datetime | None
     message: str
+    author_email: str = ""
 
 
 @dataclass
@@ -49,7 +50,8 @@ class CommitDetail:
     diff_text: str = ""
 
 
-def run_git(repo_path: str | Path, args: list[str], timeout: int = 90) -> str:
+def run_git(repo_path: str | Path, args: list[str], timeout: int = 90,
+            env_extra: dict | None = None) -> str:
     """执行 git 命令，返回 UTF-8 文本。"""
     cmd = ["git", "-c", "core.quotepath=false", "-c", "i18n.logOutputEncoding=UTF-8",
            "-C", str(repo_path)] + args
@@ -57,7 +59,8 @@ def run_git(repo_path: str | Path, args: list[str], timeout: int = 90) -> str:
         "stdout": subprocess.PIPE,
         "stderr": subprocess.PIPE,
         "timeout": timeout,
-        "env": {**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C.UTF-8"},
+        "env": {**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C.UTF-8",
+                **(env_extra or {})},
     }
     if os.name == "nt":
         kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -83,16 +86,65 @@ def is_git_repo(path: str | Path) -> bool:
         return False
 
 
-def clone_remote(url: str, repo_id: int) -> str:
+def _credential_git_env(auth_type: str, credential: str) -> tuple[dict, list[str], str]:
+    """把凭据转换为 git 命令所需的 env、额外 -c 参数、以及改写后的 URL。
+
+    返回 (env_extra, config_args, rewritten_url)。credential 为明文。
+    - token: 通过 http.<url>.extraheader 传 Bearer，避免写进 .git/config。
+    - password: 同样用 Authorization: Basic（用户名密码 base64）。
+    - ssh_key: 写入临时私钥文件，用 GIT_SSH_COMMAND 指定。
+    """
+    import base64 as _b64
+    import tempfile
+
+    env_extra: dict = {}
+    config_args: list[str] = []
+    url_override = ""
+    if not credential or auth_type in ("", "none"):
+        return env_extra, config_args, url_override
+
+    if auth_type == "token":
+        config_args = ["-c", f"http.extraheader=Authorization: Bearer {credential}"]
+    elif auth_type == "password":
+        # 支持 user:pass 或只有密码（此时用户名占位 oauth2）
+        raw = credential if ":" in credential else f"oauth2:{credential}"
+        basic = _b64.b64encode(raw.encode("utf-8")).decode("ascii")
+        config_args = ["-c", f"http.extraheader=Authorization: Basic {basic}"]
+    elif auth_type == "ssh_key":
+        key_file = tempfile.NamedTemporaryFile(
+            mode="w", suffix="_key", prefix="gma_ssh_", delete=False, encoding="utf-8"
+        )
+        key_file.write(credential.strip() + "\n")
+        key_file.close()
+        try:
+            os.chmod(key_file.name, 0o600)
+        except OSError:
+            pass
+        env_extra["GIT_SSH_COMMAND"] = (
+            f'ssh -i "{key_file.name}" -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL'
+        )
+    return env_extra, config_args, url_override
+
+
+def clone_remote(url: str, repo_id: int, auth_type: str = "none",
+                 credential: str = "") -> str:
     """远程地址克隆到 workspace/repos/<repo_id>/repo。"""
     target = REPOS_DIR / str(repo_id) / "repo"
+    env_extra, config_args, _ = _credential_git_env(auth_type, credential)
     if (target / ".git").exists():
-        run_git(target, ["fetch", "--all", "--prune", "--quiet"], timeout=180)
+        cmd = ["git", *config_args, "-C", str(target), "fetch", "--all", "--prune", "--quiet"]
+        kwargs = {"stdout": subprocess.PIPE, "stderr": subprocess.PIPE, "timeout": 180,
+                  "env": {**os.environ, "GIT_TERMINAL_PROMPT": "0", **env_extra}}
+        if os.name == "nt":
+            kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        proc = subprocess.run(cmd, **kwargs)
+        if proc.returncode != 0:
+            raise GitError(f"拉取失败：{proc.stderr.decode('utf-8', errors='replace').strip()[:400]}")
         return str(target)
     target.parent.mkdir(parents=True, exist_ok=True)
-    cmd = ["git", "-c", "core.quotepath=false", "clone", "--quiet", url, str(target)]
-    kwargs: dict = {"stdout": subprocess.PIPE, "stderr": subprocess.PIPE, "timeout": 300,
-                    "env": {**os.environ, "GIT_TERMINAL_PROMPT": "0"}}
+    cmd = ["git", "-c", "core.quotepath=false", *config_args, "clone", "--quiet", url, str(target)]
+    kwargs = {"stdout": subprocess.PIPE, "stderr": subprocess.PIPE, "timeout": 300,
+              "env": {**os.environ, "GIT_TERMINAL_PROMPT": "0", **env_extra}}
     if os.name == "nt":
         kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     proc = subprocess.run(cmd, **kwargs)
@@ -143,9 +195,13 @@ def head_sha(repo_path: str, branch: str = "") -> str | None:
         return None
 
 
-def fetch_all(repo_path: str) -> None:
+def fetch_all(repo_path: str, auth_type: str = "none", credential: str = "") -> None:
     try:
-        run_git(repo_path, ["fetch", "--all", "--prune", "--quiet"], timeout=180)
+        env_extra, config_args, _ = _credential_git_env(auth_type, credential)
+        run_git(
+            repo_path, [*config_args, "fetch", "--all", "--prune", "--quiet"],
+            timeout=180, env_extra=env_extra,
+        )
     except GitError:
         pass  # 本地仓库 / 离线场景不阻断
 
@@ -159,13 +215,17 @@ def parse_commit_log(raw: str) -> list[CommitInfo]:
         parts = record.split(FIELD_SEP)
         if len(parts) < 4:
             continue
-        sha, author, date_str = parts[0].strip(), parts[1].strip(), parts[2].strip()
-        message = FIELD_SEP.join(parts[3:]).strip()
+        sha, author, author_email, date_str = (
+            parts[0].strip(), parts[1].strip(), parts[2].strip(), parts[3].strip()
+        )
+        message = FIELD_SEP.join(parts[4:]).strip()
         try:
             dt = datetime.fromisoformat(date_str.replace("Z", "+00:00")).replace(tzinfo=None)
         except ValueError:
             dt = None
-        result.append(CommitInfo(sha=sha, author=author, committed_at=dt, message=message))
+        result.append(CommitInfo(
+            sha=sha, author=author, author_email=author_email, committed_at=dt, message=message
+        ))
     return result
 
 

@@ -6,6 +6,7 @@ export interface CommitQuery {
   file?: string
   branch?: string
   risk?: string
+  user_id?: number
 }
 
 export const commitsApi = {

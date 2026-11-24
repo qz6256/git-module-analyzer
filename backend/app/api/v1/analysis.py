@@ -62,9 +62,10 @@ def file_doc(file_id: int, user=Depends(get_current_user), db: Session = Depends
 @router.get("/repositories/{repo_id}/commits")
 def list_commits(repo_id: int, q: str = "", branch: str = "", risk: str = "",
                  author: str = "", file: str = "", only_high: str = "",
-                 page: int = 1, size: int = 30,
+                 page: int = 1, size: int = 30, user_id: int | None = None,
                  user=Depends(get_current_user), db: Session = Depends(get_db)):
-    return kr.list_commits(db, repo_id, q, branch, risk, author, file, only_high == "1", page, size)
+    return kr.list_commits(db, repo_id, q, branch, risk, author, file,
+                           only_high == "1", page, size, user_id=user_id)
 
 
 @router.get("/repositories/{repo_id}/branches")

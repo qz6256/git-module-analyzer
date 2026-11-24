@@ -59,6 +59,15 @@
                   <div class="small faint">@{{ row.username }} · {{ row.email }}</div>
                 </template>
               </el-table-column>
+              <el-table-column label="Git 身份" min-width="180">
+                <template #default="{ row }">
+                  <template v-if="row.git_identity">
+                    <div>{{ row.git_identity.name }}</div>
+                    <div class="small faint">{{ row.git_identity.email || '（无邮箱）' }}</div>
+                  </template>
+                  <span v-else class="faint">未绑定</span>
+                </template>
+              </el-table-column>
               <el-table-column label="角色" min-width="220">
                 <template #default="{ row }">
                   <span v-for="role in row.roles || []" :key="role.code" class="badge badge-blue" style="margin-right: 4px">
@@ -78,9 +87,11 @@
               <el-table-column label="最近登录" width="160">
                 <template #default="{ row }"><span class="small muted">{{ formatTime(row.last_login_at) }}</span></template>
               </el-table-column>
-              <el-table-column label="操作" width="180" align="right">
+              <el-table-column label="操作" width="300" align="right">
                 <template #default="{ row }">
                   <el-button link type="primary" size="small" @click="openRoles(row)">编辑角色</el-button>
+                  <el-button link type="primary" size="small" @click="openGit(row)">绑定 Git</el-button>
+                  <el-button link size="small" @click="router.push(`/users/${row.id}/commits`)">查看提交</el-button>
                   <el-button
                     link
                     size="small"
@@ -147,21 +158,56 @@
         <el-button type="primary" :loading="savingRoles" @click="saveRoles">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- 绑定 Git 身份 -->
+    <el-dialog v-model="gitDialog" title="绑定 Git 身份" width="560px" destroy-on-close>
+      <div class="small muted" style="margin-bottom: 12px">
+        目标用户：<strong>{{ gitUser?.display_name || gitUser?.username }}</strong>
+        <span v-if="gitUser?.git_identity" class="badge badge-green" style="margin-left: 6px">
+          当前：{{ gitUser.git_identity.name }}
+        </span>
+      </div>
+      <el-form label-position="top">
+        <el-form-item label="选择已发现的 Git 用户（来自提交作者）">
+          <el-select v-model="selectedIdentity" clearable filterable style="width: 100%" placeholder="可留空">
+            <el-option
+              v-for="item in identities"
+              :key="item.id"
+              :label="`${item.name}${item.email ? ' <' + item.email + '>' : ''}`"
+              :value="item.id"
+            />
+          </el-select>
+        </el-form-item>
+        <div class="small faint" style="margin: -6px 0 12px">或手动输入一个新的 Git 身份：</div>
+        <div class="grid grid-2">
+          <el-form-item label="Git 用户名"><el-input v-model="manualName" placeholder="提交里的 author 名" /></el-form-item>
+          <el-form-item label="Git 邮箱"><el-input v-model="manualEmail" placeholder="author 邮箱（可选）" /></el-form-item>
+        </div>
+      </el-form>
+      <template #footer>
+        <el-button @click="gitDialog = false">取消</el-button>
+        <el-button :loading="savingGit" @click="unbindGit" :disabled="!gitUser?.git_identity">解绑当前</el-button>
+        <el-button type="primary" :loading="savingGit" @click="saveGit">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import PageHeader from '@/components/PageHeader.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import { settingsApi } from '@/api/modules/settings'
 import { usersApi } from '@/api/modules/users'
+import { gitIdentitiesApi } from '@/api/modules/gitIdentities'
 import { useAuthStore } from '@/stores/auth'
 import { formatTime } from '@/utils/format'
-import type { DatabaseStatus, HealthStatus, LlmConfig, User } from '@/types'
+import type { DatabaseStatus, GitIdentity, HealthStatus, LlmConfig, User } from '@/types'
 
 const auth = useAuthStore()
+const router = useRouter()
 const activeTab = ref('llm')
 
 // ---- LLM ----
@@ -258,6 +304,67 @@ async function toggleStatus(user: User) {
   await usersApi.updateUser(user.id, { status: next })
   ElMessage.success(next === 'active' ? '用户已启用' : '用户已禁用')
   await loadUsers()
+}
+
+// ---- Git 身份绑定 ----
+const gitDialog = ref(false)
+const gitUser = ref<User | null>(null)
+const identities = ref<GitIdentity[]>([])
+const selectedIdentity = ref<number | null>(null)
+const manualName = ref('')
+const manualEmail = ref('')
+const savingGit = ref(false)
+
+async function openGit(user: User) {
+  gitUser.value = user
+  selectedIdentity.value = user.git_identity?.id ?? null
+  manualName.value = ''
+  manualEmail.value = ''
+  try {
+    identities.value = (await gitIdentitiesApi.list()).items
+  } catch {
+    identities.value = []
+  }
+  gitDialog.value = true
+}
+
+async function saveGit() {
+  if (!gitUser.value) return
+  savingGit.value = true
+  try {
+    // 先解绑该用户当前身份，避免一对一冲突
+    if (gitUser.value.git_identity) {
+      await gitIdentitiesApi.bind(gitUser.value.git_identity.id, null)
+    }
+    if (manualName.value.trim()) {
+      const created = await gitIdentitiesApi.createManual({
+        name: manualName.value.trim(),
+        email: manualEmail.value.trim(),
+        user_id: gitUser.value.id,
+      })
+      await gitIdentitiesApi.bind(created.id, gitUser.value.id)
+    } else if (selectedIdentity.value) {
+      await gitIdentitiesApi.bind(selectedIdentity.value, gitUser.value.id)
+    }
+    ElMessage.success('Git 身份已绑定')
+    gitDialog.value = false
+    await loadUsers()
+  } finally {
+    savingGit.value = false
+  }
+}
+
+async function unbindGit() {
+  if (!gitUser.value?.git_identity) return
+  savingGit.value = true
+  try {
+    await gitIdentitiesApi.bind(gitUser.value.git_identity.id, null)
+    ElMessage.success('已解绑 Git 身份')
+    gitDialog.value = false
+    await loadUsers()
+  } finally {
+    savingGit.value = false
+  }
 }
 
 // ---- 数据库 ----

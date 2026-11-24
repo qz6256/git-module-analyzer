@@ -12,6 +12,14 @@
           <el-option label="中" value="中" />
           <el-option label="低" value="低" />
         </el-select>
+        <el-select v-model="filters.user_id" clearable filterable placeholder="按人员" style="width: 160px" @change="load">
+          <el-option
+            v-for="person in people"
+            :key="person.id"
+            :label="`${person.display_name || person.username} · ${person.git_identity?.name || '未绑定'}`"
+            :value="person.id"
+          />
+        </el-select>
         <el-button :icon="Search" @click="load">查询</el-button>
       </div>
 
@@ -80,16 +88,20 @@ import PageHeader from '@/components/PageHeader.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import RiskTag from '@/components/RiskTag.vue'
 import { commitsApi } from '@/api/modules/commits'
+import { usersApi } from '@/api/modules/users'
+import { gitIdentitiesApi } from '@/api/modules/gitIdentities'
 import { useRepoContext } from '@/composables/useRepoContext'
 import { formatTime, shortSha } from '@/utils/format'
-import type { CommitAnalysis } from '@/types'
+import type { CommitAnalysis, GitIdentity } from '@/types'
 
 const router = useRouter()
 const { repoId, hasRepo } = useRepoContext()
 
 const rows = ref<CommitAnalysis[]>([])
 const loading = ref(false)
-const filters = reactive({ q: '', file: '', branch: '', risk: '' })
+const filters = reactive({ q: '', file: '', branch: '', risk: '', user_id: undefined as number | undefined })
+interface PersonOption { id: number; username: string; display_name?: string; git_identity?: GitIdentity | null }
+const people = ref<PersonOption[]>([])
 
 async function load() {
   if (!repoId.value) {
@@ -103,14 +115,34 @@ async function load() {
       file: filters.file || undefined,
       branch: filters.branch || undefined,
       risk: filters.risk || undefined,
+      user_id: filters.user_id || undefined,
     })
   } finally {
     loading.value = false
   }
 }
 
+async function loadPeople() {
+  try {
+    const [users, bound] = await Promise.all([
+      usersApi.getUsers(),
+      gitIdentitiesApi.list(true),
+    ])
+    const boundByUser = new Map<number, GitIdentity>()
+    for (const gi of bound.items) {
+      if (gi.user_id) boundByUser.set(gi.user_id, gi)
+    }
+    people.value = users.map((u) => ({ ...u, git_identity: boundByUser.get(u.id) || null }))
+  } catch {
+    people.value = []
+  }
+}
+
 watch(repoId, load)
-onMounted(load)
+onMounted(() => {
+  load()
+  loadPeople()
+})
 </script>
 
 <style scoped>

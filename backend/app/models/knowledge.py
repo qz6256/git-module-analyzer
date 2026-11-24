@@ -158,6 +158,7 @@ class CommitAnalysis(Base):
     commit_sha: Mapped[str] = mapped_column(String(64), index=True)
     branch: Mapped[str] = mapped_column(String(200), default="")
     author: Mapped[str] = mapped_column(String(200), default="")
+    author_email: Mapped[str] = mapped_column(String(200), default="")
     committed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     message: Mapped[str] = mapped_column(Text, default="")
     summary: Mapped[str] = mapped_column(Text, default="")

@@ -101,7 +101,13 @@
             <el-table-column label="最近分析" width="150">
               <template #default="{ row }"><span class="small muted">{{ formatTime(row.last_analyzed_at) }}</span></template>
             </el-table-column>
-            <el-table-column v-if="canManage" label="操作" width="180" align="right">
+            <el-table-column label="凭据" width="110">
+              <template #default="{ row }">
+                <span v-if="row.has_credential" class="badge badge-green">已配置</span>
+                <span v-else class="badge badge-gray">无需 / 未配置</span>
+              </template>
+            </el-table-column>
+            <el-table-column v-if="canManage" label="操作" width="240" align="right">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" :loading="busyRepo === row.id" @click="initialize(row)">
                   初始化
@@ -109,6 +115,7 @@
                 <el-button link size="small" :loading="busyRepo === row.id" @click="sync(row)">
                   同步
                 </el-button>
+                <el-button link size="small" @click="openCredential(row)">凭据</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -187,10 +194,58 @@
           </el-form-item>
         </div>
         <el-form-item label="默认分支"><el-input v-model="repoForm.default_branch" placeholder="main" /></el-form-item>
+        <div class="grid grid-2">
+          <el-form-item label="Git 认证方式">
+            <el-select v-model="repoForm.auth_type" style="width: 100%">
+              <el-option label="无需认证（公开 / 本机凭据）" value="none" />
+              <el-option label="访问令牌 Token（推荐）" value="token" />
+              <el-option label="用户名密码" value="password" />
+              <el-option label="SSH 私钥" value="ssh_key" />
+            </el-select>
+          </el-form-item>
+          <el-form-item v-if="repoForm.auth_type !== 'none'" label="凭据（加密保存，不回显）">
+            <el-input
+              v-model="repoForm.credential"
+              type="password"
+              show-password
+              :placeholder="credentialPlaceholder"
+            />
+          </el-form-item>
+        </div>
+        <div v-if="repoForm.auth_type !== 'none'" class="small faint">
+          凭据仅用于拉取仓库，加密存储；Token 填 token 值，密码填 用户名:密码，SSH 填私钥全文。
+        </div>
       </el-form>
       <template #footer>
         <el-button @click="repoDialog = false">取消</el-button>
         <el-button type="primary" :loading="submitting" @click="submitRepo">添加</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 编辑凭据 -->
+    <el-dialog v-model="credDialog" title="Git 凭据设置" width="480px" destroy-on-close>
+      <div class="small muted" style="margin-bottom: 10px">
+        仓库：{{ credRepo?.display_name || credRepo?.name }}
+        <span v-if="credRepo?.has_credential" class="badge badge-green" style="margin-left: 6px">已配置凭据</span>
+      </div>
+      <el-form label-position="top">
+        <el-form-item label="认证方式">
+          <el-select v-model="credForm.auth_type" style="width: 100%">
+            <el-option label="无需认证（公开 / 本机凭据）" value="none" />
+            <el-option label="访问令牌 Token（推荐）" value="token" />
+            <el-option label="用户名密码" value="password" />
+            <el-option label="SSH 私钥" value="ssh_key" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="credForm.auth_type !== 'none'" label="新凭据（留空表示不修改；加密保存不回显）">
+          <el-input v-model="credForm.credential" type="password" show-password :placeholder="credPlaceholder" />
+        </el-form-item>
+        <div v-if="credForm.auth_type === 'none'" class="small faint">保存后将清除已配置的凭据。</div>
+        <div v-else class="small faint">留空则保留原凭据；填写新值则覆盖。</div>
+      </el-form>
+      <template #footer>
+        <el-button @click="credDialog = false">取消</el-button>
+        <el-button type="primary" :loading="submitting" @click="saveCredential">保存</el-button>
       </template>
     </el-dialog>
 
@@ -241,6 +296,7 @@ import { repositoriesApi } from '@/api/modules/repositories'
 import { useAuthStore } from '@/stores/auth'
 import { formatTime, shortSha } from '@/utils/format'
 import type {
+  GitAuthType,
   JobInfo,
   MemberOut,
   Project,
@@ -382,6 +438,40 @@ async function sync(repo: Repository) {
   }
 }
 
+// ---- 编辑凭据 ----
+const credDialog = ref(false)
+const credRepo = ref<Repository | null>(null)
+const credForm = reactive({ auth_type: 'none' as GitAuthType, credential: '' })
+const credPlaceholder = computed(() => {
+  if (credForm.auth_type === 'token') return '新 Token，留空保留原值'
+  if (credForm.auth_type === 'password') return '新密码（用户名:密码），留空保留原值'
+  if (credForm.auth_type === 'ssh_key') return '新私钥全文，留空保留原值'
+  return ''
+})
+
+function openCredential(repo: Repository) {
+  credRepo.value = repo
+  credForm.auth_type = repo.auth_type || 'none'
+  credForm.credential = ''
+  credDialog.value = true
+}
+
+async function saveCredential() {
+  if (!credRepo.value) return
+  submitting.value = true
+  try {
+    await repositoriesApi.updateRepository(credRepo.value.id, {
+      auth_type: credForm.auth_type,
+      credential: credForm.credential,
+    })
+    ElMessage.success('凭据已保存')
+    credDialog.value = false
+    await loadAll()
+  } finally {
+    submitting.value = false
+  }
+}
+
 // ---- 添加仓库 / 成员 ----
 const repoDialog = ref(false)
 const memberDialog = ref(false)
@@ -393,6 +483,15 @@ const repoForm = reactive({
   repo_type: 'backend' as RepoType,
   source_type: 'local' as 'local' | 'remote',
   default_branch: 'main',
+  auth_type: 'none' as GitAuthType,
+  credential: '',
+})
+
+const credentialPlaceholder = computed(() => {
+  if (repoForm.auth_type === 'token') return '例如：ghp_xxxx 或 gitlab token'
+  if (repoForm.auth_type === 'password') return '例如：username:password'
+  if (repoForm.auth_type === 'ssh_key') return '粘贴 -----BEGIN OPENSSH PRIVATE KEY----- 全文'
+  return ''
 })
 const memberForm = reactive({ user_id: 0, role_code: 'developer' })
 
@@ -403,8 +502,18 @@ async function submitRepo() {
   }
   submitting.value = true
   try {
-    await repositoriesApi.createRepository(projectId.value, repoForm)
+    await repositoriesApi.createRepository(projectId.value, {
+      name: repoForm.name,
+      display_name: repoForm.display_name,
+      source: repoForm.source,
+      repo_type: repoForm.repo_type,
+      source_type: repoForm.source_type,
+      default_branch: repoForm.default_branch,
+      auth_type: repoForm.auth_type,
+      credential: repoForm.credential,
+    })
     ElMessage.success('仓库已添加')
+    repoForm.credential = ''
     repoDialog.value = false
     await loadAll()
   } finally {

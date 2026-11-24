@@ -4,6 +4,7 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from ..core.crypto import encrypt
 from ..core.deps import user_role_codes
 from ..core.errors import ConflictError, ForbiddenError, NotFoundError
 from ..models.knowledge import CommitAnalysis, ProjectModule, SourceFile
@@ -21,6 +22,13 @@ def _project_out(db: Session, project) -> ProjectOut:
     out = ProjectOut.model_validate(project)
     out.stats = ProjectStats(**repo.project_stats(db, project.id))
     return out
+
+
+def _repo_out(r) -> RepositoryOut:
+    """仓库出参：凭据只回状态，不回明文。"""
+    payload = RepositoryOut.model_validate(r)
+    payload.has_credential = bool(r.credential_enc)
+    return payload
 
 
 def _check_access(db: Session, user, project_id: int, write: bool = False) -> None:
@@ -139,25 +147,45 @@ def remove_member(db: Session, project_id: int, user_id: int) -> None:
 
 
 # ---------- 仓库 ----------
+_VALID_AUTH = ("none", "token", "password", "ssh_key")
+
+
 def list_repositories(db: Session, project_id: int) -> list[RepositoryOut]:
-    return [RepositoryOut.model_validate(r) for r in repo.list_repositories(db, project_id)]
+    return [_repo_out(r) for r in repo.list_repositories(db, project_id)]
 
 
 def create_repository(db: Session, project_id: int, data: dict) -> RepositoryOut:
+    data = dict(data)
     if data.get("source_type") not in (None, "local", "remote"):
         raise ConflictError("source_type 只能是 local 或 remote")
+    auth_type = data.pop("auth_type", "none") or "none"
+    credential = data.pop("credential", "") or ""
+    if auth_type not in _VALID_AUTH:
+        raise ConflictError("认证方式不支持")
+    data["auth_type"] = auth_type
+    data["credential_enc"] = encrypt(credential) if credential and auth_type != "none" else ""
     r = repo.create_repository(db, project_id, data)
     db.commit()
-    return RepositoryOut.model_validate(r)
+    return _repo_out(r)
 
 
 def update_repository(db: Session, repo_id: int, data: dict) -> RepositoryOut:
     r = repo.get_repository(db, repo_id)
     if not r:
         raise NotFoundError("仓库")
+    data = dict(data)
+    auth_type = data.pop("auth_type", None)
+    credential = data.pop("credential", None)
+    if auth_type is not None:
+        if auth_type not in _VALID_AUTH:
+            raise ConflictError("认证方式不支持")
+        r.auth_type = auth_type
+    if credential is not None:
+        # 空串表示清空；未传（None）表示保持不变
+        r.credential_enc = encrypt(credential) if credential else ""
     repo.update_repository(db, r, data)
     db.commit()
-    return RepositoryOut.model_validate(r)
+    return _repo_out(r)
 
 
 def delete_repository(db: Session, repo_id: int) -> None:

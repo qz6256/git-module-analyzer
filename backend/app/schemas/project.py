@@ -74,6 +74,9 @@ class RepositoryBase(BaseModel):
     local_path: str = ""
     default_branch: str = "main"
     branches: list[str] = Field(default_factory=list)
+    # Git 凭据：auth_type = none | token | password | ssh_key
+    auth_type: str = "none"
+    credential: str = ""  # 明文输入，仅用于加密后入库，不会回显
 
 
 class RepositoryCreateIn(RepositoryBase):
@@ -87,6 +90,8 @@ class RepositoryUpdateIn(BaseModel):
     source: str | None = None
     default_branch: str | None = None
     branches: list[str] | None = None
+    auth_type: str | None = None
+    credential: str | None = None  # 传空串表示清空凭据
 
 
 class RepositoryOut(BaseModel):
@@ -100,6 +105,8 @@ class RepositoryOut(BaseModel):
     local_path: str
     default_branch: str
     branches: list[str] = []
+    auth_type: str = "none"
+    has_credential: bool = False
     status: str
     status_message: str
     last_analyzed_at: datetime | None = None

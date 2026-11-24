@@ -41,6 +41,17 @@ class RoleOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class GitIdentityOut(BaseModel):
+    id: int
+    name: str
+    email: str
+    source: str
+    commit_count: int = 0
+    last_seen_at: datetime | None = None
+
+    model_config = {"from_attributes": True}
+
+
 class UserOut(BaseModel):
     id: int
     username: str
@@ -50,6 +61,7 @@ class UserOut(BaseModel):
     is_superuser: bool
     last_login_at: datetime | None = None
     roles: list[RoleOut] = []
+    git_identity: GitIdentityOut | None = None
 
     model_config = {"from_attributes": True}
 

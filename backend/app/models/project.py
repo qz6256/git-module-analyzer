@@ -73,6 +73,9 @@ class Repository(Base):
     local_path: Mapped[str] = mapped_column(Text, default="")
     default_branch: Mapped[str] = mapped_column(String(200), default="main")
     branches: Mapped[list[str]] = mapped_column(JsonType, default=list)
+    # Git 凭据：auth_type = none | token | password | ssh_key；密文存 credential_enc
+    auth_type: Mapped[str] = mapped_column(String(20), default="none")
+    credential_enc: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(30), default="pending")
     status_message: Mapped[str] = mapped_column(Text, default="")
     last_analyzed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

@@ -165,8 +165,14 @@ def file_doc(db: Session, file_id: int) -> dict:
 # ============ 提交 ============
 def list_commits(db: Session, repo_id: int, q: str = "", branch: str = "", risk: str = "",
                  author: str = "", file: str = "", only_high: bool = False,
-                 page: int = 1, size: int = 30) -> dict:
+                 page: int = 1, size: int = 30, user_id: int | None = None) -> dict:
     conds = [CommitAnalysis.repo_id == repo_id]
+    if user_id:
+        from ..repositories.git_identity_repo import emails_for_users, names_for_users
+        emails, names = emails_for_users(db, [user_id]), names_for_users(db, [user_id])
+        parts = [CommitAnalysis.author_email.in_(emails)] if emails else []
+        parts += [CommitAnalysis.author.in_(names)] if names else []
+        conds.append(or_(*parts) if parts else CommitAnalysis.id < 0)
     if q:
         conds.append(or_(CommitAnalysis.message.contains(q), CommitAnalysis.summary.contains(q),
                          CommitAnalysis.commit_sha.contains(q)))
@@ -191,7 +197,8 @@ def list_commits(db: Session, repo_id: int, q: str = "", branch: str = "", risk:
     ).all()
     return {"total": total, "page": page, "size": size, "items": [{
         "id": c.id, "commit_sha": c.commit_sha, "sha_short": c.commit_sha[:7],
-        "branch": c.branch, "author": c.author, "committed_at": _iso(c.committed_at),
+        "branch": c.branch, "author": c.author,
+        "author_email": getattr(c, "author_email", ""), "committed_at": _iso(c.committed_at),
         "message": c.message, "summary": c.summary, "motivation": c.motivation,
         "evidence_source": c.evidence_source, "affected_files": c.affected_files or [],
         "diff_stats": c.diff_stats or {}, "risk_level": c.risk_level,

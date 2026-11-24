@@ -23,7 +23,9 @@ from sqlalchemy.orm import Session
 
 from . import diff_parser, git_service, issue_linker, llm_service, signal_filter
 from ._paths import REPOS_DIR
+from ..core.crypto import decrypt
 from ..db.session import SessionLocal
+from ..repositories import git_identity_repo
 from ..models.knowledge import (BranchState, CommitAnalysis, FileChangeEvent, Issue,
                                 ModuleCandidate, ModuleChangeEvent, ProjectModule,
                                 SourceFile, SystemConfig)
@@ -307,6 +309,7 @@ def _analyze_one_commit(db: Session, repo: Repository, cfg: SystemConfig,
         ca = CommitAnalysis(
             repo_id=repo.id, project_id=repo.project_id,
             commit_sha=commit.sha, branch=branch, author=commit.author,
+            author_email=commit.author_email,
             committed_at=commit.committed_at, message=commit.message,
             summary="低信号提交，未纳入知识时间线", motivation=llm_service.NO_MOTIVATION,
             evidence_source="未知", affected_files=[fd.path for fd in fds],
@@ -336,6 +339,7 @@ def _analyze_one_commit(db: Session, repo: Repository, cfg: SystemConfig,
     ca = CommitAnalysis(
         repo_id=repo.id, project_id=repo.project_id,
         commit_sha=commit.sha, branch=branch, author=commit.author,
+        author_email=commit.author_email,
         committed_at=commit.committed_at, message=commit.message, summary=result.summary,
         motivation=result.motivation, evidence_source=result.evidence_source,
         affected_files=[fd.path for fd in verdict.kept_files], diff_stats=diff_stats,
@@ -461,8 +465,10 @@ def initialize(db: Session, repo_id: int, cb: ProgressCB | None = None,
     if not repo:
         raise RuntimeError("仓库不存在")
     cb(2, "准备仓库路径")
+    _auth = getattr(repo, "auth_type", "none") or "none"
+    _cred = decrypt(getattr(repo, "credential_enc", "") or "") if _auth != "none" else ""
     if repo.source_type == "remote":
-        repo.local_path = git_service.clone_remote(repo.source, repo.id)
+        repo.local_path = git_service.clone_remote(repo.source, repo.id, _auth, _cred)
     else:
         repo.local_path = git_service.normalize_local_path(repo.source)
         if not git_service.is_git_repo(repo.local_path):
@@ -528,6 +534,10 @@ def initialize(db: Session, repo_id: int, cb: ProgressCB | None = None,
     issues = list(db.scalars(select(Issue).where(Issue.repo_id == repo.id)).all())
     commits = git_service.log_recent(repo_path, ref, limit=max(history_limit, 1))
     commits = list(reversed(commits))  # 按时间正序
+    # 从提交作者自动发现 Git 身份（供用户绑定与按人检索）
+    git_identity_repo.upsert_from_commits(
+        db, [(c.author, getattr(c, "author_email", "")) for c in commits]
+    )
     analyzed = filtered = linked = 0
     total = max(len(commits), 1)
     for i, c in enumerate(commits):
@@ -586,7 +596,9 @@ def incremental_sync(db: Session, repo_id: int, cb: ProgressCB | None = None,
     repo_path = repo.local_path
     cb(5, "拉取远端更新")
     if repo.source_type == "remote":
-        git_service.fetch_all(repo_path)
+        _auth = getattr(repo, "auth_type", "none") or "none"
+        _cred = decrypt(getattr(repo, "credential_enc", "") or "") if _auth != "none" else ""
+        git_service.fetch_all(repo_path, _auth, _cred)
     branches = [branch] if branch else (repo.branches or [repo.default_branch])
     modules = db.scalars(select(ProjectModule).where(ProjectModule.repo_id == repo.id)).all()
     issues = list(db.scalars(select(Issue).where(Issue.repo_id == repo.id)).all())
@@ -614,6 +626,9 @@ def incremental_sync(db: Session, repo_id: int, cb: ProgressCB | None = None,
             # 新分支无水位线时只回溯最近 60 条，避免全量历史拖慢首次同步
             commits = list(reversed(git_service.log_recent(repo_path, br, limit=60)))
         cb(15 + int(60 * bi / max(len(branches), 1)), f"分支 {br} 发现 {len(commits)} 条新提交")
+        git_identity_repo.upsert_from_commits(
+            db, [(c.author, getattr(c, "author_email", "")) for c in commits]
+        )
         analyzed = filtered = 0
         for i, c in enumerate(commits):
             r = _analyze_one_commit(db, repo, cfg, repo_path, c, br, modules,
