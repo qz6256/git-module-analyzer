@@ -111,6 +111,7 @@ class RepositoryOut(BaseModel):
     status_message: str
     last_analyzed_at: datetime | None = None
     created_at: datetime
+    init_job_id: str | None = None
 
     model_config = {"from_attributes": True}
 

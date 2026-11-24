@@ -9,10 +9,65 @@ from ..models.knowledge import (
     BranchState, CommitAnalysis, FileChangeEvent, Issue,
     IssueCommitLink, ModuleCandidate, ModuleChangeEvent, ProjectModule, SourceFile,
 )
+from ..models.project import Repository
+from ..models.user import GitIdentity, User
 
 
 def _iso(dt) -> str:
     return dt.isoformat() if dt else ""
+
+
+def _identity_maps(db: Session) -> tuple[dict, dict]:
+    """Git 身份 → 系统用户映射，用于把提交作者显示成责任人。"""
+    rows = db.scalars(
+        select(GitIdentity).where(GitIdentity.user_id.is_not(None))
+    ).all()
+    by_email: dict[str, dict] = {}
+    by_name: dict[str, dict] = {}
+    for identity in rows:
+        user = db.get(User, identity.user_id)
+        if not user:
+            continue
+        payload = {
+            "id": user.id,
+            "username": user.username,
+            "display_name": user.display_name or user.username,
+        }
+        if identity.email:
+            by_email[identity.email.strip().lower()] = payload
+        if identity.name:
+            by_name[identity.name.strip().lower()] = payload
+    return by_email, by_name
+
+
+def _bound_user(author: str, email: str, maps: tuple[dict, dict]) -> dict | None:
+    by_email, by_name = maps
+    return (
+        by_email.get((email or "").strip().lower())
+        or by_name.get((author or "").strip().lower())
+    )
+
+
+def _commit_email_map(db: Session, repo_id: int) -> dict[str, str]:
+    rows = db.scalars(
+        select(CommitAnalysis).where(CommitAnalysis.repo_id == repo_id)
+    ).all()
+    return {row.commit_sha: (row.author_email or "") for row in rows}
+
+
+def _event_payload(e: ModuleChangeEvent, email_map: dict[str, str],
+                   identity_maps: tuple[dict, dict]) -> dict:
+    email = email_map.get(e.commit_sha, "")
+    return {
+        "id": e.id, "commit_sha": e.commit_sha, "sha_short": e.commit_sha[:7],
+        "branch": e.branch, "author": e.author, "author_email": email,
+        "bound_user": _bound_user(e.author, email, identity_maps),
+        "committed_at": _iso(e.committed_at),
+        "commit_message": e.commit_message, "summary": e.summary,
+        "capability_delta": e.capability_delta, "affected_files": e.affected_files or [],
+        "motivation": e.motivation, "evidence_source": e.evidence_source,
+        "risk_level": e.risk_level, "analysis_mode": e.analysis_mode,
+    }
 
 
 # ============ 模块 ============
@@ -24,6 +79,10 @@ def list_modules(db: Session, repo_id: int) -> list[dict]:
         "id": m.id, "name": m.name, "path_rules": m.path_rules or [],
         "responsibility": m.responsibility, "one_liner": m.one_liner,
         "evolution_line": m.evolution_line, "status": m.status,
+        "module_owner_user_id": m.module_owner_user_id,
+        "owner": _user_payload(db, m.module_owner_user_id),
+        "knowledge_status": m.knowledge_status or "pending",
+        "review_due_at": _iso(m.review_due_at),
         "change_count": m.change_count, "file_count": m.file_count,
         "doc_path": m.doc_path,
     } for m in items]
@@ -31,6 +90,16 @@ def list_modules(db: Session, repo_id: int) -> list[dict]:
 
 def get_module(db: Session, module_id: int) -> ProjectModule | None:
     return db.get(ProjectModule, module_id)
+
+
+def _user_payload(db: Session, user_id: int | None) -> dict | None:
+    if not user_id:
+        return None
+    user = db.get(User, user_id)
+    if not user:
+        return None
+    return {"id": user.id, "username": user.username,
+            "display_name": user.display_name or user.username}
 
 
 def module_detail(db: Session, module_id: int, branch: str = "") -> dict:
@@ -51,27 +120,151 @@ def module_detail(db: Session, module_id: int, branch: str = "") -> dict:
     branches = [b for b in db.scalars(
         select(ModuleChangeEvent.branch).where(ModuleChangeEvent.module_id == module_id).distinct()
     ).all() if b]
+
+    email_map = _commit_email_map(db, m.repo_id)
+    identities = _identity_maps(db)
+    timeline = [_event_payload(e, email_map, identities) for e in events]
+
+    contributors: dict[str, dict] = {}
+    for item in timeline:
+        key = (item["author_email"] or item["author"] or "未知").strip().lower()
+        row = contributors.setdefault(key, {
+            "key": key, "author": item["author"] or "未知作者",
+            "author_email": item["author_email"], "bound_user": item["bound_user"],
+            "commit_count": 0, "last_committed_at": "",
+        })
+        row["commit_count"] += 1
+        if item["committed_at"] > row["last_committed_at"]:
+            row["last_committed_at"] = item["committed_at"]
+
+    owner = _user_payload(db, m.module_owner_user_id)
+    recommended = sorted(contributors.values(), key=lambda x: (-x["commit_count"], x["author"]))[:3]
     return {
         "module": {
             "id": m.id, "name": m.name, "repo_id": m.repo_id,
             "path_rules": m.path_rules or [], "responsibility": m.responsibility,
             "one_liner": m.one_liner, "current_doc": m.current_doc,
             "evolution_line": m.evolution_line, "status": m.status,
+            "module_owner_user_id": m.module_owner_user_id,
+            "owner": owner,
+            "knowledge_status": m.knowledge_status or "pending",
+            "review_due_at": _iso(m.review_due_at),
             "change_count": m.change_count, "file_count": m.file_count,
             "doc_path": m.doc_path, "last_commit_sha": m.last_commit_sha,
         },
         "branches": branches,
-        "files": [{"id": f.id, "path": f.path, "one_liner": f.one_liner,
-                   "change_count": f.change_count, "risk_level": f.risk_level} for f in files],
-        "events": [{
-            "id": e.id, "commit_sha": e.commit_sha, "sha_short": e.commit_sha[:7],
-            "branch": e.branch, "author": e.author, "committed_at": _iso(e.committed_at),
-            "commit_message": e.commit_message, "summary": e.summary,
-            "capability_delta": e.capability_delta, "affected_files": e.affected_files or [],
-            "motivation": e.motivation, "evidence_source": e.evidence_source,
-            "risk_level": e.risk_level, "analysis_mode": e.analysis_mode,
-        } for e in events],
+        "files": [{
+            "id": f.id, "repo_id": f.repo_id, "path": f.path, "module_name": f.module_name,
+            "language": f.language, "one_liner": f.one_liner,
+            "change_count": f.change_count, "risk_level": f.risk_level,
+            "last_commit_sha": f.last_commit_sha,
+        } for f in files],
+        "timeline": timeline,
+        "events": timeline,
+        "contributors": recommended,
     }
+
+
+def module_commits(db: Session, module_id: int, page: int = 1, size: int = 30,
+                   author: str = "", user_id: int | None = None,
+                   branch: str = "", q: str = "") -> dict:
+    m = db.get(ProjectModule, module_id)
+    if not m:
+        raise NotFoundError("模块")
+    conds = [ModuleChangeEvent.module_id == module_id]
+    if branch:
+        conds.append(ModuleChangeEvent.branch == branch)
+    if author:
+        conds.append(ModuleChangeEvent.author.contains(author))
+    if q:
+        conds.append(or_(
+            ModuleChangeEvent.commit_sha.contains(q),
+            ModuleChangeEvent.commit_message.contains(q),
+            ModuleChangeEvent.summary.contains(q),
+            ModuleChangeEvent.capability_delta.contains(q),
+        ))
+    if user_id:
+        from .git_identity_repo import emails_for_users, names_for_users
+        emails, names = emails_for_users(db, [user_id]), names_for_users(db, [user_id])
+        parts = []
+        if emails:
+            parts.append(CommitAnalysis.author_email.in_(emails))
+        if names:
+            parts.append(CommitAnalysis.author.in_(names))
+        sub = (select(CommitAnalysis.commit_sha)
+               .where(CommitAnalysis.repo_id == m.repo_id, or_(*parts) if parts else CommitAnalysis.id < 0))
+        conds.append(ModuleChangeEvent.commit_sha.in_(sub))
+
+    total = db.scalar(
+        select(func.count()).select_from(ModuleChangeEvent).where(*conds)
+    ) or 0
+    rows = db.scalars(
+        select(ModuleChangeEvent).where(*conds)
+        .order_by(ModuleChangeEvent.committed_at.desc().nullslast(), ModuleChangeEvent.id.desc())
+        .offset((page - 1) * size).limit(size)
+    ).all()
+    email_map = _commit_email_map(db, m.repo_id)
+    identities = _identity_maps(db)
+    return {
+        "total": total, "page": page, "size": size,
+        "items": [_event_payload(e, email_map, identities) for e in rows],
+    }
+
+
+def project_modules(db: Session, project_id: int) -> list[dict]:
+    rows = db.scalars(
+        select(ProjectModule).where(ProjectModule.project_id == project_id)
+        .order_by(ProjectModule.id)
+    ).all()
+    if not rows:
+        return []
+    repos = db.scalars(
+        select(Repository).where(Repository.project_id == project_id)
+    ).all()
+    repo_map = {r.id: {"id": r.id, "name": r.name, "display_name": r.display_name,
+                       "repo_type": r.repo_type} for r in repos}
+    last_map = dict(db.execute(
+        select(ModuleChangeEvent.module_id, func.max(ModuleChangeEvent.committed_at))
+        .where(ModuleChangeEvent.module_id.in_([m.id for m in rows]))
+        .group_by(ModuleChangeEvent.module_id)
+    ).all())
+    count_map = dict(db.execute(
+        select(ModuleChangeEvent.module_id, func.count())
+        .where(ModuleChangeEvent.module_id.in_([m.id for m in rows]))
+        .group_by(ModuleChangeEvent.module_id)
+    ).all())
+    return [{
+        "id": m.id, "repo_id": m.repo_id, "name": m.name,
+        "repo": repo_map.get(m.repo_id),
+        "one_liner": m.one_liner, "path_rules": m.path_rules or [],
+        "file_count": m.file_count, "change_count": m.change_count,
+        "commit_count": count_map.get(m.id, 0),
+        "last_change_at": _iso(last_map.get(m.id)),
+        "status": m.status, "knowledge_status": m.knowledge_status or "pending",
+        "module_owner_user_id": m.module_owner_user_id,
+        "owner": _user_payload(db, m.module_owner_user_id),
+    } for m in rows]
+
+
+def update_module(db: Session, module_id: int, data: dict) -> dict:
+    m = db.get(ProjectModule, module_id)
+    if not m:
+        raise NotFoundError("模块")
+    if "knowledge_status" in data and data["knowledge_status"] is not None:
+        if data["knowledge_status"] not in ("pending", "confirmed", "needs_review"):
+            raise ValueError("模块知识状态不支持该值")
+        m.knowledge_status = data["knowledge_status"]
+    if "module_owner_user_id" in data:
+        owner_id = data["module_owner_user_id"]
+        if owner_id is not None and not db.get(User, owner_id):
+            raise NotFoundError("责任人")
+        m.module_owner_user_id = owner_id
+    if "review_due_at" in data:
+        m.review_due_at = data["review_due_at"]
+    db.commit()
+    db.refresh(m)
+    return {"id": m.id, "module_owner_user_id": m.module_owner_user_id,
+            "knowledge_status": m.knowledge_status, "review_due_at": _iso(m.review_due_at)}
 
 
 def list_module_candidates(db: Session, repo_id: int) -> list[dict]:

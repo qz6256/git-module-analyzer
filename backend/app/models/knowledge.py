@@ -57,6 +57,14 @@ class ProjectModule(Base):
     current_doc: Mapped[str] = mapped_column(Text, default="")
     evolution_line: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(20), default="active")  # active | dormant | new
+    module_owner_user_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL", name="fk_project_modules_owner_user"),
+        nullable=True, index=True,
+    )
+    knowledge_status: Mapped[str] = mapped_column(
+        String(20), default="pending"
+    )  # pending | confirmed | needs_review
+    review_due_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_commit_sha: Mapped[str] = mapped_column(String(64), default="")
     change_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)

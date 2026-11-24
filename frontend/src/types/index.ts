@@ -146,6 +146,7 @@ export interface Repository {
   status_message?: string
   last_analyzed_at?: string | null
   created_at?: string
+  init_job_id?: string | null
 }
 
 export type GitAuthType = 'none' | 'token' | 'password' | 'ssh_key'
@@ -220,6 +221,14 @@ export interface BranchState {
 }
 
 // ---------------- 分析产物 ----------------
+export type KnowledgeStatus = 'pending' | 'confirmed' | 'needs_review'
+
+export interface BoundUser {
+  id: number
+  username: string
+  display_name: string
+}
+
 export interface ProjectModule {
   id: number
   repo_id: number
@@ -234,6 +243,10 @@ export interface ProjectModule {
   evolution_line?: string
   risk_level?: string
   status?: 'active' | 'dormant' | 'new'
+  module_owner_user_id?: number | null
+  owner?: BoundUser | null
+  knowledge_status?: KnowledgeStatus
+  review_due_at?: string | null
   last_commit_sha?: string
   change_count?: number
   created_at?: string
@@ -247,6 +260,8 @@ export interface ModuleChangeEvent {
   commit_sha: string
   branch?: string
   author?: string
+  author_email?: string
+  bound_user?: BoundUser | null
   committed_at?: string | null
   commit_message?: string
   summary?: string
@@ -259,10 +274,47 @@ export interface ModuleChangeEvent {
   created_at?: string
 }
 
+export interface ModuleContributor {
+  key: string
+  author: string
+  author_email: string
+  bound_user?: BoundUser | null
+  commit_count: number
+  last_committed_at: string
+}
+
+export interface ModuleCommitQuery {
+  page?: number
+  size?: number
+  author?: string
+  user_id?: number
+  branch?: string
+  q?: string
+}
+
+export interface ProjectModuleOverview extends ProjectModule {
+  repo?: { id: number; name: string; display_name?: string; repo_type?: string }
+  commit_count?: number
+  last_change_at?: string | null
+}
+
 export interface ModuleDetail {
   module: ProjectModule
   timeline: ModuleChangeEvent[]
+  events?: ModuleChangeEvent[]
   files: SourceFile[]
+  contributors: ModuleContributor[]
+  branches?: string[]
+}
+
+export interface SourcePreview {
+  path: string
+  language?: string
+  content: string
+  truncated: boolean
+  total_lines: number
+  ref: string
+  reason?: string
 }
 
 export interface ModuleCandidate {

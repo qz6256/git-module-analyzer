@@ -9,7 +9,8 @@
 
 - **工程项目管理**：一个项目下挂任意多个代码仓库（前端 / 后端 / App / 小程序 / 其他），合成统一视图；项目成员按角色授权。
 - **文件视角**：拉出任一文件，看当前职责、跨提交演进主线、每次改动的代码块、文档更新、可回溯的 Git 提交。
-- **模块视角**：冷启动按目录与共变关系识别功能模块；后续提交累积职责演进；新功能自动冒出候选，人工确认后建档。
+- **模块视角**：新建仓库自动冷启动，按目录与共变关系识别功能模块；后续提交累积职责演进；新功能自动冒出候选，人工确认后建档。
+- **模块管理**：按项目聚合多仓库模块，查看模块对应文件、源码预览、提交人、提交记录；支持责任人、知识状态与复核管理。
 - **需求/缺陷追溯**：登记「为什么改」，自动三级关联提交，四项信号 → 三档证据评级；**只评估证据充分性，绝不输出「已修复/未修复」**。
 - **多数据库**：SQLite / PostgreSQL / MySQL / Oracle / SQL Server，改一行 `DATABASE_URL` 即可切换，Alembic 统一迁移。
 - **用户与权限**：JWT 登录、bcrypt 密码、4 种角色（管理员 / 项目负责人 / 开发者 / 访客）、项目级鉴权。
@@ -105,7 +106,7 @@ git-module-analyzer/
 
 ## API 速查
 
-完整契约见 `ARCHITECTURE.md` 第 4 节；启动后端后访问 `http://127.0.0.1:8777/docs` 查看交互式 Swagger 文档（40 个路径 / 51 个操作）。
+完整契约见 `ARCHITECTURE.md` 第 4 节；启动后端后访问 `http://127.0.0.1:8777/docs` 查看交互式 Swagger 文档（47 个路径 / 59 个操作）。
 
 | 分组 | 主要端点（前缀 `/api/v1`） |
 |---|---|
@@ -113,6 +114,6 @@ git-module-analyzer/
 | 用户 | `/users` `/users/{id}/roles` |
 | 项目 | `/projects` `/projects/{id}` `/projects/{id}/overview` `/projects/{id}/members` |
 | 仓库 | `/projects/{id}/repositories` `/repositories/{id}/initialize` `/repositories/{id}/sync` `/jobs/{id}` |
-| 分析 | `/repositories/{id}/modules` `/files` `/commits` `/modules/{id}` `/files/{id}` |
+| 分析 | `/repositories/{id}/modules` `/projects/{id}/modules` `/files` `/commits` `/modules/{id}` `/modules/{id}/commits` `/files/{id}/source` |
 | 追溯 | `/repositories/{id}/issues` `/issues/{id}` `/issue-links/{id}/confirm\|reject` |
 | 设置 | `/settings/llm` `/settings/database` `/health` |

@@ -30,9 +30,12 @@ def list_repos(project_id: int, user=Depends(get_current_user), db: Session = De
 
 
 @router.post("/projects/{project_id}/repositories", response_model=RepositoryOut, status_code=201)
-def create_repo(project_id: int, payload: dict,
+def create_repo(project_id: int, payload: dict, auto_init: bool = True,
                 user=Depends(get_current_user), db: Session = Depends(get_db)):
-    return project_service.create_repository(db, project_id, payload)
+    result = project_service.create_repository(db, project_id, payload)
+    if auto_init:
+        result.init_job_id = analysis_service.initialize(db, result.id)
+    return result
 
 
 @router.put("/repositories/{repo_id}", response_model=RepositoryOut)

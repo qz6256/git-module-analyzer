@@ -1,5 +1,5 @@
 import request from '../request'
-import type { FileDetail, Paged, SourceFile } from '@/types'
+import type { FileDetail, Paged, SourceFile, SourcePreview } from '@/types'
 
 export interface FileQuery {
   q?: string
@@ -24,4 +24,9 @@ export const filesApi = {
 
   getFileDoc: (fileId: number) =>
     request.get<string>(`/files/${fileId}/doc`, { responseType: 'text' }),
+
+  getFileSource: (fileId: number, branch?: string) =>
+    request.get<SourcePreview>(`/files/${fileId}/source`, {
+      params: branch ? { branch } : undefined,
+    }),
 }

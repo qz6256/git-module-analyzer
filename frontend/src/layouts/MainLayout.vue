@@ -19,6 +19,9 @@
           <el-menu-item index="/projects">
             <el-icon><Grid /></el-icon><span>项目工作台</span>
           </el-menu-item>
+          <el-menu-item index="/project-modules">
+            <el-icon><Connection /></el-icon><span>项目模块总览</span>
+          </el-menu-item>
           <el-menu-item index="/modules">
             <el-icon><Files /></el-icon><span>模块清单</span>
           </el-menu-item>

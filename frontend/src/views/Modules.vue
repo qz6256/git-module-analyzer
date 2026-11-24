@@ -39,6 +39,11 @@
           <el-option label="新建" value="new" />
           <el-option label="沉寂" value="dormant" />
         </el-select>
+        <el-select v-model="knowledgeFilter" clearable placeholder="知识状态" style="width: 150px">
+          <el-option label="待确认" value="pending" />
+          <el-option label="已确认" value="confirmed" />
+          <el-option label="需复核" value="needs_review" />
+        </el-select>
       </div>
 
       <el-card shadow="never" v-loading="loading">
@@ -58,6 +63,17 @@
           </el-table-column>
           <el-table-column label="职责" min-width="220">
             <template #default="{ row }"><span class="small">{{ row.responsibility || row.one_liner || '—' }}</span></template>
+          </el-table-column>
+          <el-table-column label="责任人" min-width="120">
+            <template #default="{ row }">
+              <span v-if="row.owner">{{ row.owner.display_name }}</span>
+              <span v-else class="faint">未指定</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="知识状态" width="110">
+            <template #default="{ row }">
+              <span class="badge" :class="knowledgeTone(row.knowledge_status)">{{ knowledgeLabel(row.knowledge_status) }}</span>
+            </template>
           </el-table-column>
           <el-table-column prop="file_count" label="文件" width="72" align="center" />
           <el-table-column prop="change_count" label="变更" width="72" align="center" />
@@ -100,6 +116,7 @@ const loading = ref(false)
 const busy = ref(0)
 const keyword = ref('')
 const statusFilter = ref('')
+const knowledgeFilter = ref('')
 
 const filteredModules = computed(() =>
   modules.value.filter((module) => {
@@ -109,9 +126,19 @@ const filteredModules = computed(() =>
         .toLowerCase()
         .includes(keyword.value.toLowerCase())
     const matchStatus = !statusFilter.value || module.status === statusFilter.value
-    return matchKeyword && matchStatus
+    const matchKnowledge = !knowledgeFilter.value || module.knowledge_status === knowledgeFilter.value
+    return matchKeyword && matchStatus && matchKnowledge
   }),
 )
+
+function knowledgeLabel(status?: string) {
+  return { pending: '待确认', confirmed: '已确认', needs_review: '需复核' }[status || ''] || status || '未知'
+}
+function knowledgeTone(status?: string) {
+  if (status === 'confirmed') return 'badge-green'
+  if (status === 'needs_review') return 'badge-amber'
+  return 'badge-gray'
+}
 
 function statusLabel(status?: string) {
   return { active: '活跃', dormant: '沉寂', new: '新建' }[status || ''] || status || '未知'

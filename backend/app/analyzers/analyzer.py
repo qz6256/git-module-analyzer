@@ -14,7 +14,7 @@ import re
 import threading
 import traceback
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable
 
@@ -277,6 +277,10 @@ def _refresh_module_archive(db: Session, pm: ProjectModule, cfg: SystemConfig) -
     pm.doc_path = _write_md(modules_dir, pm.name, pm.current_doc)
 
 
+def _review_due() -> datetime:
+    return datetime.now() + timedelta(days=90)
+
+
 def _module_status_by_age(db: Session, pm: ProjectModule) -> str:
     latest = db.scalar(select(func.max(ModuleChangeEvent.committed_at))
                        .where(ModuleChangeEvent.module_id == pm.id))
@@ -439,6 +443,9 @@ def _analyze_one_commit(db: Session, repo: Repository, cfg: SystemConfig,
                 analysis_mode=mode))
             pm.change_count = (pm.change_count or 0) + 1
             pm.status = "active"
+            if result.risk_level == "高":
+                pm.knowledge_status = "needs_review"
+                pm.review_due_at = datetime.now()
         _refresh_module_archive(db, pm, cfg)
     db.flush()
 
@@ -505,7 +512,8 @@ def initialize(db: Session, repo_id: int, cb: ProgressCB | None = None,
     for item in cluster.modules:
         pm = ProjectModule(repo_id=repo.id, project_id=repo.project_id, name=item.name,
                            path_rules=item.path_rules,
-                           responsibility=item.responsibility, status="active")
+                           responsibility=item.responsibility, status="active",
+                           knowledge_status="pending", review_due_at=_review_due())
         db.add(pm)
         modules.append(pm)
     db.flush()
@@ -694,6 +702,7 @@ def confirm_candidate(db: Session, candidate_id: int, custom_name: str = "") -> 
     pm = ProjectModule(
         repo_id=cand.repo_id, project_id=project_id, name=name,
         path_rules=list(cand.path_rules or []),
+        knowledge_status="pending", review_due_at=_review_due(),
         responsibility=(f"由提交 {(cand.evidence_commit or '')[:7]} 引入的新功能模块，"
                         f"包含 {len(cand.sample_files or [])} 个源码文件"),
         status="active")

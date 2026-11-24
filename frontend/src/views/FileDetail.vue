@@ -34,6 +34,17 @@
           </el-card>
         </el-tab-pane>
 
+        <el-tab-pane label="源码预览" name="source">
+          <el-card shadow="never">
+            <div v-if="source?.reason" class="small muted">{{ source.reason }}</div>
+            <pre v-else-if="source" class="source-code">{{ source.content }}</pre>
+            <EmptyState v-else title="暂无源码预览" description="初始化仓库后可按分支读取源码" />
+            <div v-if="source?.truncated" class="small muted" style="margin-top: 8px">
+              已截断，共 {{ source.total_lines }} 行。
+            </div>
+          </el-card>
+        </el-tab-pane>
+
         <el-tab-pane label="变更时间线" name="timeline">
           <el-card shadow="never">
             <div v-if="detail.timeline.length" class="timeline">
@@ -85,13 +96,14 @@ import EmptyState from '@/components/EmptyState.vue'
 import RiskTag from '@/components/RiskTag.vue'
 import { filesApi } from '@/api/modules/files'
 import { formatTime, shortSha } from '@/utils/format'
-import type { FileDetail } from '@/types'
+import type { FileDetail, SourcePreview } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
 
 const detail = ref<FileDetail | null>(null)
 const docText = ref('')
+const source = ref<SourcePreview | null>(null)
 const loading = ref(false)
 const activeTab = ref('doc')
 
@@ -118,6 +130,11 @@ onMounted(async () => {
   } catch {
     docText.value = ''
   }
+  try {
+    source.value = await filesApi.getFileSource(id, (route.query.branch as string) || undefined)
+  } catch {
+    source.value = null
+  }
 })
 </script>
 
@@ -126,5 +143,11 @@ onMounted(async () => {
   white-space: pre-wrap;
   font-size: 13px;
   line-height: 1.8;
+}
+.source-code {
+  margin: 0; max-height: 65vh; overflow: auto; padding: 14px;
+  background: var(--color-bg-tertiary, rgba(15, 23, 42, 0.04));
+  border: 1px solid var(--color-border); border-radius: 8px;
+  font-family: 'JetBrains Mono', Consolas, monospace; font-size: 12px; line-height: 1.6;
 }
 </style>

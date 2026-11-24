@@ -87,6 +87,7 @@ git-module-analyzer/
 
 - 凡有 `repo_id` 的表，保持 repo_id 外键；
 - 需要项目层汇总的表（project_modules, commit_analyses, issues, issue_commit_links）额外冗余 `project_id` 便于聚合查询（写入时同步冗余）。
+- `project_modules` 另含 `module_owner_user_id`（可空，责任人）、`knowledge_status`（pending/confirmed/needs_review）、`review_due_at`；高风险变更自动标记需复核。
 
 ### 3.3 跨数据库约定（强制）
 
@@ -126,7 +127,7 @@ GET    /projects/{id}/members → MemberOut[]
 POST   /projects/{id}/members [owner/admin] {user_id,role_code} → MemberOut
 DELETE /projects/{id}/members/{user_id} → 204
 GET    /projects/{id}/repositories → RepositoryOut[]
-POST   /projects/{id}/repositories {name,source,repo_type,...} → 201 RepositoryOut
+POST   /projects/{id}/repositories ?auto_init=1 {name,source,repo_type,...} → 201 RepositoryOut(含 init_job_id)
 PUT    /repositories/{id}     → RepositoryOut
 DELETE /repositories/{id}     → 204
 POST   /repositories/{id}/initialize → {job_id}
@@ -136,14 +137,18 @@ GET    /jobs/{job_id}         → {status,progress,message,result}
 
 ### 4.3 分析产物（沿用现有语义）
 ```
-GET    /repositories/{id}/modules  → ModuleOut[]
-GET    /modules/{module_id}        → {module,timeline,files}
+GET    /repositories/{id}/modules  → ModuleOut[]（含责任人、知识状态）
+GET    /projects/{id}/modules      → ProjectModuleOverview[]（按项目聚合多仓库模块）
+GET    /modules/{module_id}        → {module,timeline,events,files,contributors,branches}
+PUT    /modules/{module_id}        {module_owner_user_id?,knowledge_status?,review_due_at?} → 更新结果
+GET    /modules/{module_id}/commits ?author=&user_id=&branch=&q=&page=&size= → paged
 GET    /repositories/{id}/module-candidates → CandidateOut[]
 POST   /module-candidates/{id}/confirm → {file_count}
 POST   /module-candidates/{id}/ignore → 200
 GET    /repositories/{id}/files    ?q=&module=&risk=&page=&size= → paged
 GET    /files/{file_id}            ?branch=&risk=&author= → {file,timeline}
 GET    /files/{file_id}/doc        → text/markdown
+GET    /files/{file_id}/source     ?branch= → {path,language,content,truncated,total_lines,ref,reason}
 GET    /repositories/{id}/commits  ?q=&file=&branch=&risk= → CommitOut[]
 GET    /repositories/{id}/branches → BranchStateOut[]
 GET    /repositories/{id}/issues   ?q=&issue_type=&status=&assessment= → IssueOut[]

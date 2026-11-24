@@ -86,6 +86,30 @@ def is_git_repo(path: str | Path) -> bool:
         return False
 
 
+def show_blob(repo_path: str | Path, ref: str, path: str, timeout: int = 30) -> bytes:
+    """按 Git 引用读取单个文件的原始内容，返回 bytes。"""
+    cmd = ["git", "-c", "core.quotepath=false", "-C", str(repo_path),
+           "show", f"{ref}:{path}"]
+    kwargs: dict = {
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "timeout": timeout,
+        "env": {**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C.UTF-8"},
+    }
+    if os.name == "nt":
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        proc = subprocess.run(cmd, **kwargs)
+    except subprocess.TimeoutExpired as exc:
+        raise GitError(f"读取源码超时（{timeout}s）：{path}") from exc
+    except FileNotFoundError as exc:
+        raise GitError("未检测到 git 可执行文件，请先安装 Git 并确保其在 PATH 中") from exc
+    if proc.returncode != 0:
+        err = proc.stderr.decode("utf-8", errors="replace")
+        raise GitError(f"读取源码失败：{err.strip()[:400]}")
+    return proc.stdout
+
+
 def _credential_git_env(auth_type: str, credential: str) -> tuple[dict, list[str], str]:
     """把凭据转换为 git 命令所需的 env、额外 -c 参数、以及改写后的 URL。
 

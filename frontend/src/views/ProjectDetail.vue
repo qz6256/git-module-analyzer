@@ -8,6 +8,9 @@
           <span v-if="project" class="badge" :class="statusTone(project.status)">
             {{ statusLabel(project.status) }}
           </span>
+          <el-button v-if="project" size="small" @click="router.push({ path: '/project-modules', query: { project_id: String(projectId) } })">
+            项目模块总览
+          </el-button>
         </div>
         <div class="page-subtitle">
           {{ project?.description || '暂无项目描述' }}
@@ -399,14 +402,12 @@ const jobStatus = computed(() => {
   return undefined
 })
 
-async function startJob(task: Promise<JobInfo>) {
-  const result = await task
-  job.value = result
+function startPolling(jobId: string) {
   jobDialog.value = true
   stopPolling()
   timer = window.setInterval(async () => {
     try {
-      const info = await repositoriesApi.getJob(result.job_id)
+      const info = await repositoriesApi.getJob(jobId)
       job.value = info
       if (['succeeded', 'success', 'done', 'completed', 'failed', 'error'].includes(info.status)) {
         stopPolling()
@@ -416,6 +417,12 @@ async function startJob(task: Promise<JobInfo>) {
       stopPolling()
     }
   }, 1200)
+}
+
+async function startJob(task: Promise<JobInfo>) {
+  const result = await task
+  job.value = result
+  startPolling(result.job_id)
 }
 
 async function initialize(repo: Repository) {
@@ -502,7 +509,7 @@ async function submitRepo() {
   }
   submitting.value = true
   try {
-    await repositoriesApi.createRepository(projectId.value, {
+    const created = await repositoriesApi.createRepository(projectId.value, {
       name: repoForm.name,
       display_name: repoForm.display_name,
       source: repoForm.source,
@@ -512,10 +519,19 @@ async function submitRepo() {
       auth_type: repoForm.auth_type,
       credential: repoForm.credential,
     })
-    ElMessage.success('仓库已添加')
+    ElMessage.success(created.init_job_id ? '仓库已添加，冷启动分析已开始' : '仓库已添加')
     repoForm.credential = ''
     repoDialog.value = false
     await loadAll()
+    if (created.init_job_id) {
+      job.value = {
+        job_id: created.init_job_id,
+        status: 'running',
+        progress: 0,
+        message: '冷启动分析已提交，正在扫描仓库…',
+      }
+      startPolling(created.init_job_id)
+    }
   } finally {
     submitting.value = false
   }

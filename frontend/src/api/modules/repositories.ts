@@ -8,8 +8,10 @@ import type {
 } from '@/types'
 
 export const repositoriesApi = {
-  createRepository: (projectId: number, data: RepositoryCreateInput) =>
-    request.post<Repository>(`/projects/${projectId}/repositories`, data),
+  createRepository: (projectId: number, data: RepositoryCreateInput, autoInit = true) =>
+    request.post<Repository>(`/projects/${projectId}/repositories`, data, {
+      params: { auto_init: autoInit ? 1 : 0 },
+    }),
 
   updateRepository: (id: number, data: RepositoryUpdateInput) =>
     request.put<Repository>(`/repositories/${id}`, data),
