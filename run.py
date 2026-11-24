@@ -17,6 +17,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 BACKEND = ROOT / "backend"
 FRONTEND = ROOT / "frontend"
+# Windows 下 npm 是 npm.cmd，Python subprocess 默认不会按 PATHEXT 补全
+NPM = "npm.cmd" if os.name == "nt" else "npm"
 
 
 def ensure_db() -> None:
@@ -47,11 +49,11 @@ def run_api(port: int) -> subprocess.Popen:
 def run_web() -> subprocess.Popen | None:
     if not (FRONTEND / "node_modules").exists():
         print("[web] 未安装依赖，先执行 npm install ...")
-        r = subprocess.run(["npm", "install", "--registry=https://registry.npmmirror.com"], cwd=FRONTEND)
+        r = subprocess.run([NPM, "install", "--registry=https://registry.npmmirror.com"], cwd=FRONTEND)
         if r.returncode != 0:
             print("[web] npm install 失败")
             return None
-    return subprocess.Popen(["npm", "run", "dev"], cwd=FRONTEND)
+    return subprocess.Popen([NPM, "run", "dev"], cwd=FRONTEND)
 
 
 def main() -> None:

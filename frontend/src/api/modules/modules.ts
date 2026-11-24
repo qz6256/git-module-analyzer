@@ -4,7 +4,6 @@ import type {
   KnowledgeStatus,
   ModuleCandidate,
   ModuleCommitQuery,
-  ModuleContributor,
   ModuleDetail,
   ModuleChangeEvent,
   Paged,
@@ -20,10 +19,12 @@ export interface ModuleUpdateInput {
 
 export const modulesApi = {
   getModules: (repoId: number) =>
-    request.get<ProjectModule[]>(`/repositories/${repoId}/modules`),
+    request.get<{ items: ProjectModule[] }>(`/repositories/${repoId}/modules`)
+      .then((res) => res.items || []),
 
   getProjectModules: (projectId: number) =>
-    request.get<ProjectModuleOverview[]>(`/projects/${projectId}/modules`),
+    request.get<{ items: ProjectModuleOverview[] }>(`/projects/${projectId}/modules`)
+      .then((res) => res.items || []),
 
   getModuleDetail: (moduleId: number) =>
     request.get<ModuleDetail>(`/modules/${moduleId}`),
@@ -35,7 +36,8 @@ export const modulesApi = {
     request.put<{ id: number }>(`/modules/${moduleId}`, data),
 
   getModuleCandidates: (repoId: number) =>
-    request.get<ModuleCandidate[]>(`/repositories/${repoId}/module-candidates`),
+    request.get<{ items: ModuleCandidate[] }>(`/repositories/${repoId}/module-candidates`)
+      .then((res) => res.items || []),
 
   confirmCandidate: (id: number) =>
     request.post<ConfirmResult>(`/module-candidates/${id}/confirm`, {}),
@@ -43,5 +45,3 @@ export const modulesApi = {
   ignoreCandidate: (id: number) =>
     request.post<void>(`/module-candidates/${id}/ignore`, {}),
 }
-
-export type { ModuleContributor }

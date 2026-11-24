@@ -26,5 +26,7 @@ export const repositoriesApi = {
 
   getJob: (jobId: string) => request.get<JobInfo>(`/jobs/${encodeURIComponent(jobId)}`),
 
-  getBranches: (id: number) => request.get<BranchState[]>(`/repositories/${id}/branches`),
+  getBranches: (id: number) =>
+    request.get<{ items: BranchState[] }>(`/repositories/${id}/branches`)
+      .then((res) => res.items || []),
 }

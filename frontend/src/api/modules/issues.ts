@@ -17,7 +17,8 @@ export interface IssueQuery {
 
 export const issuesApi = {
   getIssues: (repoId: number, params?: IssueQuery) =>
-    request.get<Issue[]>(`/repositories/${repoId}/issues`, { params }),
+    request.get<{ items: Issue[] }>(`/repositories/${repoId}/issues`, { params })
+      .then((res) => res.items || []),
 
   createIssue: (repoId: number, data: IssueCreateInput) =>
     request.post<Issue>(`/repositories/${repoId}/issues`, data),
