@@ -1,4 +1,4 @@
-"""城市项目与仓库 Schema。"""
+"""工程项目与仓库 Schema。"""
 from __future__ import annotations
 
 from datetime import datetime

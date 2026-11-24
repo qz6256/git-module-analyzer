@@ -1,4 +1,4 @@
-"""城市项目 API。"""
+"""工程项目 API。"""
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Response
@@ -10,7 +10,7 @@ from ...schemas.project import (
 )
 from ...services import project_service
 
-router = APIRouter(prefix="/projects", tags=["城市项目"])
+router = APIRouter(prefix="/projects", tags=["工程项目"])
 
 
 @router.get("", response_model=list[ProjectOut])

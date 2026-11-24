@@ -1,4 +1,4 @@
-"""城市项目与仓库模型：Project / ProjectMember / Repository。
+"""工程项目与仓库模型：Project / ProjectMember / Repository。
 
 Repository 在 legacy 基础上增加 project_id / repo_type / display_name，
 其余业务字段保持不变，便于分析引擎平滑迁移。

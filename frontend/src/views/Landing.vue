@@ -98,7 +98,7 @@ function initParticles() {
 const capabilities = [
   { icon: '\u25C6', title: '三视角追溯', desc: '文件、功能模块、需求缺陷，一处看全变更来龙去脉。', tag: 'TRACE' },
   { icon: '\u25C7', title: '多数据库自由切换', desc: 'SQLite / PG / MySQL / Oracle / MSSQL，一行配置切换。', tag: 'DATA' },
-  { icon: '\u25CB', title: '城市项目多仓库', desc: '前端、后端、App 合成一个项目视图，按项目区分管理。', tag: 'PROJECT' },
+  { icon: '\u25CB', title: '工程项目多仓库', desc: '前端、后端、App 合成一个项目视图，按项目区分管理。', tag: 'PROJECT' },
   { icon: '\u25A3', title: '企业级权限', desc: 'JWT 登录，四角色 RBAC，项目级细粒度授权。', tag: 'AUTH' },
 ]
 
@@ -226,7 +226,7 @@ onUnmounted(() => {
         <div class="cta-inner">
           <div class="eyebrow">// GET STARTED</div>
           <h2>准备好把代码历史变成知识资产了吗？</h2>
-          <p>登录控制台，接入你的第一个城市项目与代码仓库。</p>
+          <p>登录控制台，接入你的第一个工程项目与代码仓库。</p>
           <button class="btn btn-primary btn-lg" @click="goConsole">登录 / 进入控制台 <span>→</span></button>
         </div>
       </section>
