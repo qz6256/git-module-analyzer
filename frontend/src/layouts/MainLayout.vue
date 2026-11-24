@@ -1,7 +1,7 @@
 <template>
   <el-container class="app-shell">
     <el-aside :width="ui.sidebarCollapsed ? '64px' : '236px'" class="sidebar">
-      <div class="brand">
+      <div class="brand" :class="{ 'is-collapsed': ui.sidebarCollapsed }">
         <div class="brand-mark"><el-icon><Connection /></el-icon></div>
         <div v-if="!ui.sidebarCollapsed" class="brand-txt">
           <h1>GIT KNOWLEDGE</h1>
@@ -179,12 +179,19 @@ function onUserCommand(command: string) {
 }
 
 .brand {
-  padding: 18px 16px 16px;
+  box-sizing: border-box;
+  height: var(--header-height);
+  flex: 0 0 var(--header-height);
+  padding: 0 22px;
   border-bottom: 1px solid var(--color-border);
   display: flex;
   align-items: center;
   gap: 11px;
-  min-height: 66px;
+}
+
+.brand.is-collapsed {
+  justify-content: center;
+  padding: 0;
 }
 
 .brand-mark {
@@ -270,11 +277,11 @@ function onUserCommand(command: string) {
   position: sticky;
   top: 0;
   z-index: 20;
-  min-height: 66px;
-  height: auto;
+  box-sizing: border-box;
+  height: var(--header-height);
+  padding: 0 22px;
   background: var(--color-background);
   border-bottom: 1px solid var(--color-border);
-  padding: 10px 22px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -387,7 +394,7 @@ function onUserCommand(command: string) {
     display: none;
   }
   .topbar {
-    padding: 10px 14px;
+    padding: 0 14px;
   }
   .content {
     padding: 16px 14px 40px;

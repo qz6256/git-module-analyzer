@@ -10,8 +10,7 @@
           </span>
         </div>
         <div class="page-subtitle">
-          {{ [project?.city, project?.business_domain, project?.department].filter(Boolean).join(' · ') }}
-          {{ project?.description ? ` · ${project.description}` : '' }}
+          {{ project?.description || '暂无项目描述' }}
         </div>
       </div>
     </div>

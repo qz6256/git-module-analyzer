@@ -9,12 +9,6 @@
     </PageHeader>
 
     <div class="filter-bar">
-      <el-select v-model="filters.city" clearable placeholder="城市" @change="load">
-        <el-option v-for="city in cityOptions" :key="city" :label="city" :value="city" />
-      </el-select>
-      <el-select v-model="filters.domain" clearable placeholder="业务域" @change="load">
-        <el-option v-for="domain in domainOptions" :key="domain" :label="domain" :value="domain" />
-      </el-select>
       <el-select v-model="filters.status" clearable placeholder="状态" @change="load">
         <el-option label="规划中" value="planning" />
         <el-option label="进行中" value="active" />
@@ -82,11 +76,8 @@
               </span>
             </header>
 
-            <div class="pc-meta">
-              <span>
-                {{ [project.city, project.business_domain, project.department].filter(Boolean).join(' · ') || '未填写分类信息' }}
-              </span>
-              <span v-if="project.updated_at" class="pc-updated">更新于 {{ formatDate(project.updated_at) }}</span>
+            <div v-if="project.updated_at" class="pc-meta">
+              <span class="pc-updated">更新于 {{ formatDate(project.updated_at) }}</span>
             </div>
 
             <p class="pc-desc">{{ project.description || '暂无项目描述' }}</p>
@@ -136,13 +127,6 @@
         <el-form-item label="项目名称" prop="name">
           <el-input v-model="createForm.name" placeholder="例如：支付中台" />
         </el-form-item>
-        <div class="grid grid-2">
-          <el-form-item label="城市"><el-input v-model="createForm.city" placeholder="例如：深圳" /></el-form-item>
-          <el-form-item label="业务域"><el-input v-model="createForm.department" placeholder="例如：交易平台" /></el-form-item>
-        </div>
-        <el-form-item label="业务领域">
-          <el-input v-model="createForm.business_domain" placeholder="例如：支付 / 结算" />
-        </el-form-item>
         <el-form-item label="状态">
           <el-select v-model="createForm.status" style="width: 100%">
             <el-option label="规划中" value="planning" />
@@ -189,12 +173,8 @@ const auth = useAuthStore()
 
 const projects = ref<Project[]>([])
 const loading = ref(false)
-const filters = reactive({ city: '', domain: '', status: '', keyword: '' })
+const filters = reactive({ status: '', keyword: '' })
 
-const cityOptions = computed(() => Array.from(new Set(projects.value.map((p) => p.city).filter(Boolean))) as string[])
-const domainOptions = computed(() =>
-  Array.from(new Set(projects.value.map((p) => p.business_domain).filter(Boolean))) as string[],
-)
 const canCreate = computed(() => auth.isAdmin || auth.hasRole('project_owner'))
 
 const totals = computed(() => {
@@ -213,8 +193,6 @@ async function load() {
   loading.value = true
   try {
     projects.value = await projectsApi.getProjects({
-      city: filters.city || undefined,
-      domain: filters.domain || undefined,
       status: filters.status || undefined,
       keyword: filters.keyword || undefined,
     })
@@ -224,7 +202,7 @@ async function load() {
 }
 
 function resetFilters() {
-  Object.assign(filters, { city: '', domain: '', status: '', keyword: '' })
+  Object.assign(filters, { status: '', keyword: '' })
   load()
 }
 
@@ -258,9 +236,6 @@ const createFormRef = ref<FormInstance>()
 const tagsText = ref('')
 const createForm = reactive({
   name: '',
-  city: '',
-  department: '',
-  business_domain: '',
   status: 'planning' as ProjectStatus,
   start_date: '',
   planned_end_date: '',
@@ -274,9 +249,6 @@ const createRules: FormRules = {
 function openCreate() {
   Object.assign(createForm, {
     name: '',
-    city: '',
-    department: '',
-    business_domain: '',
     status: 'planning' as ProjectStatus,
     start_date: '',
     planned_end_date: '',

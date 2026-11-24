@@ -820,6 +820,7 @@ pre code {
 }
 
 .pc-updated {
+  margin-left: auto;
   white-space: nowrap;
 }
 
