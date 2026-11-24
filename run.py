@@ -1,61 +1,84 @@
-"""一键启动：自动建表、初始化默认配置、启动 Uvicorn 并打开浏览器。
+"""新一代一键启动脚本：后端 API + 前端 Vue 开发服务器。
 
 用法：
-    python run.py                 # 默认 http://127.0.0.1:8777
-    python run.py --port 9000
-    python run.py --no-browser
+    python run.py                 # 同时启动后端(8777)与前端(5173)
+    python run.py --api-only      # 只启动后端
+    python run.py --web-only      # 只启动前端（需先 npm install）
+    python run.py --port 9000     # 自定义后端端口
 """
 from __future__ import annotations
 
 import argparse
 import os
-import threading
-import webbrowser
+import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-os.chdir(ROOT)
+BACKEND = ROOT / "backend"
+FRONTEND = ROOT / "frontend"
 
 
-def load_dotenv() -> None:
-    """轻量 .env 读取，不额外依赖 python-dotenv 也能工作。"""
-    env_file = ROOT / ".env"
-    if not env_file.exists():
-        return
-    for line in env_file.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+def ensure_db() -> None:
+    """首次运行用 Alembic 建库（幂等）。"""
+    print("[setup] 检查数据库结构 ...")
+    alembic = Path(sys.executable).parent / "Scripts" / "alembic.exe"
+    cmd = ([str(alembic), "upgrade", "head"] if alembic.exists()
+           else [sys.executable, "-m", "alembic", "upgrade", "head"])
+    env = os.environ.copy()
+    env["PYTHONUTF8"] = "1"
+    r = subprocess.run(cmd, cwd=BACKEND, env=env)
+    if r.returncode != 0:
+        print("[setup] 数据库迁移失败，请检查 DATABASE_URL")
+        sys.exit(r.returncode)
+    print("[setup] 数据库就绪")
+
+
+def run_api(port: int) -> subprocess.Popen:
+    env = os.environ.copy()
+    env["PYTHONUTF8"] = "1"
+    return subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1",
+         "--port", str(port), "--reload"],
+        cwd=BACKEND, env=env,
+    )
+
+
+def run_web() -> subprocess.Popen | None:
+    if not (FRONTEND / "node_modules").exists():
+        print("[web] 未安装依赖，先执行 npm install ...")
+        r = subprocess.run(["npm", "install", "--registry=https://registry.npmmirror.com"], cwd=FRONTEND)
+        if r.returncode != 0:
+            print("[web] npm install 失败")
+            return None
+    return subprocess.Popen(["npm", "run", "dev"], cwd=FRONTEND)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Git 文件变更历史知识库")
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8777)
-    parser.add_argument("--no-browser", action="store_true")
+    parser = argparse.ArgumentParser(description="代码变更历史知识库一键启动")
+    parser.add_argument("--port", type=int, default=8777, help="后端端口（默认 8777）")
+    parser.add_argument("--api-only", action="store_true", help="只启动后端")
+    parser.add_argument("--web-only", action="store_true", help="只启动前端")
     args = parser.parse_args()
 
-    load_dotenv()
-    from app.database import init_db, DB_PATH, WORKSPACE_DIR
-    init_db()
-    print("=" * 62)
-    print("  Git 文件变更历史知识库 · 单机本地版")
-    print("=" * 62)
-    print(f"  访问地址 : http://{args.host}:{args.port}")
-    print(f"  数据库   : {DB_PATH}")
-    print(f"  工作目录 : {WORKSPACE_DIR}")
-    print("  停止服务 : Ctrl+C")
-    print("=" * 62)
-
-    url = f"http://{args.host}:{args.port}"
-    if not args.no_browser:
-        threading.Timer(1.5, lambda: webbrowser.open(url)).start()
-
-    import uvicorn
-    uvicorn.run("app.main:app", host=args.host, port=args.port,
-                log_level="info", access_log=False)
+    procs: list[subprocess.Popen] = []
+    try:
+        if not args.web_only:
+            ensure_db()
+            print(f"[api] 启动后端 http://127.0.0.1:{args.port}  (文档 /docs)")
+            procs.append(run_api(args.port))
+        if not args.api_only:
+            print("[web] 启动前端 http://127.0.0.1:5173")
+            web = run_web()
+            if web:
+                procs.append(web)
+        if procs:
+            for p in procs:
+                p.wait()
+    except KeyboardInterrupt:
+        print("\n[stop] 正在停止服务 ...")
+        for p in procs:
+            p.terminate()
 
 
 if __name__ == "__main__":

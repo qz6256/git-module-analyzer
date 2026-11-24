@@ -1,0 +1,135 @@
+import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
+import { useProjectStore } from '@/stores/project'
+import MainLayout from '@/layouts/MainLayout.vue'
+
+const routes: RouteRecordRaw[] = [
+  {
+    path: '/login',
+    name: 'login',
+    component: () => import('@/views/Login.vue'),
+    meta: { public: true, title: '登录' },
+  },
+  {
+    path: '/',
+    component: MainLayout,
+    redirect: '/projects',
+    children: [
+      {
+        path: 'projects',
+        name: 'projects',
+        component: () => import('@/views/Projects.vue'),
+        meta: { title: '项目工作台' },
+      },
+      {
+        path: 'projects/:id',
+        name: 'project-detail',
+        component: () => import('@/views/ProjectDetail.vue'),
+        meta: { title: '项目详情' },
+      },
+      {
+        path: 'modules',
+        name: 'modules',
+        component: () => import('@/views/Modules.vue'),
+        meta: { title: '模块清单' },
+      },
+      {
+        path: 'modules/:id',
+        name: 'module-detail',
+        component: () => import('@/views/ModuleDetail.vue'),
+        meta: { title: '模块档案' },
+      },
+      {
+        path: 'files',
+        name: 'files',
+        component: () => import('@/views/Files.vue'),
+        meta: { title: '文件检索' },
+      },
+      {
+        path: 'files/:id',
+        name: 'file-detail',
+        component: () => import('@/views/FileDetail.vue'),
+        meta: { title: '文件档案' },
+      },
+      {
+        path: 'commits',
+        name: 'commits',
+        component: () => import('@/views/Commits.vue'),
+        meta: { title: '提交检索' },
+      },
+      {
+        path: 'issues',
+        name: 'issues',
+        component: () => import('@/views/Issues.vue'),
+        meta: { title: '需求与缺陷' },
+      },
+      {
+        path: 'issues/:id',
+        name: 'issue-detail',
+        component: () => import('@/views/IssueDetail.vue'),
+        meta: { title: '追溯详情' },
+      },
+      {
+        path: 'settings',
+        name: 'settings',
+        component: () => import('@/views/Settings.vue'),
+        meta: { title: '系统设置' },
+      },
+      {
+        path: '403',
+        name: 'forbidden',
+        component: () => import('@/views/Forbidden.vue'),
+        meta: { title: '无权限' },
+      },
+    ],
+  },
+  {
+    path: '/:pathMatch(.*)*',
+    name: 'not-found',
+    component: () => import('@/views/NotFound.vue'),
+    meta: { public: true, title: '页面不存在' },
+  },
+]
+
+const router = createRouter({
+  history: createWebHistory(),
+  routes,
+  scrollBehavior: () => ({ top: 0 }),
+})
+
+router.beforeEach(async (to) => {
+  const auth = useAuthStore()
+
+  if (to.meta.public) {
+    if (to.name === 'login' && auth.isAuthenticated) return { path: '/projects' }
+    return true
+  }
+
+  if (!auth.isAuthenticated) {
+    return { path: '/login', query: { redirect: to.fullPath } }
+  }
+
+  if (!auth.currentUser) {
+    await auth.fetchMe()
+    if (!auth.isAuthenticated) {
+      return { path: '/login', query: { redirect: to.fullPath } }
+    }
+  }
+
+  // 支持从旧版链接带 repo_id 直达
+  const queryRepo = Number(to.query.repo_id)
+  if (queryRepo > 0) useProjectStore().selectRepo(queryRepo)
+
+  if (to.meta.requiresAdmin && !auth.isAdmin) {
+    return { path: '/403' }
+  }
+
+  return true
+})
+
+router.afterEach((to) => {
+  const title = (to.meta.title as string | undefined) || 'Git 变更知识库'
+  document.title = `${title} · Git 变更知识库`
+})
+
+export default router

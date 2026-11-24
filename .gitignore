@@ -16,10 +16,17 @@ env/
 *.key
 *.p12
 
+# ---- 前端构建产物与依赖 ----
+node_modules/
+dist/
+*.tsbuildinfo
+
 # ---- 运行时数据：本机数据库 / 克隆的源码 / 生成的档案，一律不入库 ----
 /workspace/
+/backend/workspace/
 /output/*
 !/output/ui-preview/
+!/output/ui-preview-v2/
 *.db
 *.sqlite3
 *.sqlite3-shm

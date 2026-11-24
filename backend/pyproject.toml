@@ -1,0 +1,28 @@
+[project]
+name = "code-change-knowledge-base"
+version = "2.0.0"
+description = "AI 驱动的代码变更历史知识库（Vue3 + FastAPI + 多数据库）"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sqlalchemy>=2.0.30",
+    "alembic>=1.13",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "pydantic[email]>=2.7",
+    "pyjwt>=2.8",
+    "passlib[bcrypt]>=1.7.4",
+    "bcrypt>=4.0",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+postgres = ["psycopg[binary]>=3.1"]
+mysql = ["pymysql>=1.1"]
+oracle = ["oracledb>=2.0"]
+mssql = ["pymssql>=2.2"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

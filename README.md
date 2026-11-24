@@ -1,228 +1,118 @@
-# 代码变更历史知识库（单机本地版）
+# 代码变更历史知识库 v2
 
-**三视角 + 一条追溯链**：
-
-- **需求 / 缺陷视角**——登记「为什么要改」，系统自动把提交关联到事项，评估修复证据的充分性，并给出可点击的原始描述。
-- **文件视角**——拉出任意一个代码文件，就能看到它的当前职责、跨提交的职责演进主线、每次改动的代码块、功能说明文档更新，以及可回溯的 Git 提交。
-- **模块视角**——冷启动按目录结构与历史共变关系识别功能模块；之后每次提交累积模块的职责演进与能力变化；新增功能若不属于现有模块，自动冒出候选，人工确认后正式建模块。
-
-> 追溯链：**需求单据（为什么改） → Git 提交（谁在什么时候改） → 代码块 / 文件 / 模块档案（改了什么）**
+> **Vue 3 + FastAPI + 多数据库 + 用户权限 + 城市项目管理**
 >
-> 卖的不是变更历史（`git log` 免费给你），而是「这个文件 / 这块功能为什么是现在这个样子」的答案。
+> 三视角 + 一条追溯链：需求/缺陷 → Git 提交 → 代码块/文件/模块档案。
+> 卖的不是变更历史（`git log` 免费给你），而是「这个文件/这块功能为什么是现在这个样子」的答案。
 
-**明确的边界**：这里不是项目管理工具，不做任务分配、工时统计、看板拖拽与迭代规划；也不判断「bug 是否真的修好了」，只评估可验证的证据充分性，由开发者拍板。
+## 核心能力
 
----
+- **城市项目管理**：一个项目下挂任意多个代码仓库（前端 / 后端 / App / 小程序 / 其他），合成统一视图；项目成员按角色授权。
+- **文件视角**：拉出任一文件，看当前职责、跨提交演进主线、每次改动的代码块、文档更新、可回溯的 Git 提交。
+- **模块视角**：冷启动按目录与共变关系识别功能模块；后续提交累积职责演进；新功能自动冒出候选，人工确认后建档。
+- **需求/缺陷追溯**：登记「为什么改」，自动三级关联提交，四项信号 → 三档证据评级；**只评估证据充分性，绝不输出「已修复/未修复」**。
+- **多数据库**：SQLite / PostgreSQL / MySQL / Oracle / SQL Server，改一行 `DATABASE_URL` 即可切换，Alembic 统一迁移。
+- **用户与权限**：JWT 登录、bcrypt 密码、4 种角色（管理员 / 项目负责人 / 开发者 / 访客）、项目级鉴权。
 
-## 一、快速开始
+## 快速开始
 
-环境要求：Python 3.11+、Git（可在命令行执行 `git`）。无需 Redis / MySQL / Docker。
+环境：Python 3.11+、Node 18+、Git。
 
 ```bash
-cd git-module-analyzer
-python -m pip install -r requirements.txt   # 国内建议 -i https://mirrors.aliyun.com/pypi/simple/
+# 1. 后端依赖（国内建议加 -i https://mirrors.aliyun.com/pypi/simple/）
+cd backend
+python -m pip install -e .
+# 需要其他数据库时再装对应驱动：pip install -e ".[mysql]"  # postgres / oracle / mssql
+
+# 2. 一键启动（自动建库 + 后端 8777 + 前端 5173）
+cd ..
 python run.py
 ```
 
-启动后自动建表并打开浏览器 `http://127.0.0.1:8777`。自定义端口 / 不自动开浏览器：
+打开 `http://127.0.0.1:5173`，首次启动自动创建管理员 `admin / admin123`（**生产环境请立即修改**）。
+
+只想启动单侧：
 
 ```bash
-python run.py --port 9000
-python run.py --no-browser
+python run.py --api-only     # 仅后端 http://127.0.0.1:8777 （文档 /docs）
+python run.py --web-only     # 仅前端 http://127.0.0.1:5173
 ```
 
-可选：复制 `.env.example` 为 `.env` 预置 LLM 参数（也可在 Web 设置页配置，Web 配置优先并持久化在 SQLite）。老版本数据库启动时自动补齐新字段与新表，无需重建。
+## 切换数据库
 
----
+1. 复制 `backend/.env.example` 为 `backend/.env`，按需修改 `DATABASE_URL`：
 
-## 二、六步跑通
+```ini
+# SQLite（默认，零配置）
+DATABASE_URL=sqlite:///./workspace/db.sqlite3
+# PostgreSQL：pip install -e ".[postgres]"
+DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/kb
+# MySQL：pip install -e ".[mysql]"
+DATABASE_URL=mysql+pymysql://user:pass@localhost:3306/kb?charset=utf8mb4
+# Oracle：pip install -e ".[oracle]"
+DATABASE_URL=oracle+oracledb://user:pass@localhost:1521/?service_name=ORCL
+# SQL Server：pip install -e ".[mssql]"
+DATABASE_URL=mssql+pymssql://user:pass@localhost:1433/kb
+```
 
-1. **概览页 → 添加仓库**：填本地 Git 路径（如 `D:\code\my-project`）或远程 HTTPS/SSH 地址，指定监控分支；本地仓库会自动探测当前分支。
-2. **登记需求 / 缺陷**：在「需求缺陷追溯」页手工登记，或用「CSV 导入」粘贴禅道 / Jira / 自建台账导出的数据（支持中英文列名别名）。**强烈建议填写「相关路径」**，关联判定与证据评级都会准确得多。
-3. **初始化扫描**：目录测绘 + 历史文件共变统计 → 功能模块聚类 → 为每个模块与源码文件生成基线档案 → 回溯历史高信号提交，同时构建**文件时间线**与**模块时间线** → 自动关联需求与提交 → 建立分支水位线。
-4. **一键增量同步**：只分析 `last_commit_sha..HEAD` 之间的新提交，高信号过滤后做代码块级解析，写入文件与模块两套时间线、增量修订两份当前态说明，并对新提交跑自动关联。
-5. **看追溯**：需求详情页看关联提交时间线、四项信号矩阵、证据结论，对待确认的推测关联点「确认 / 否决」；文件 / 模块 / 提交页反向显示关联事项，点击可跳回需求单。
-6. **看模块与文件**：模块清单页看职责、演进主线、状态（活跃/沉睡）、变更次数；点进模块详情看能力变化；文件详情页看代码块级变更与文档更新。
+2. 执行迁移：`cd backend && alembic upgrade head`
+3. 重启服务即可。业务代码零改动。
 
-**新功能怎么处理**：新增源码若不匹配任何现有模块的路径规则，同步后会在模块清单页顶部出现「新发现的功能模块候选」，显示触发提交、路径规则和样例文件。确认后正式建档、重新归属文件、补上第一条可追溯的模块时间线节点；忽略则不再提示。
+跨库兼容由三层保证：`JsonType`（JSON 列在 5 种方言下的统一适配）、显式主键/时间类型、Alembic 迁移。已验证同一套迁移脚本在 SQLite/MySQL/Oracle/PostgreSQL 下均可生成完整建表 SQL。
 
-**未配置 LLM 也能完整跑通**：系统自动降级为本地规则模式，模块聚类、档案、代码块解析、两套时间线、职责演进、文档修订、需求关联与证据评级全部可用；仅语义归纳质量较低。配置 LLM 后重新初始化即可提升质量。
+## 六步跑通
 
----
+1. 登录 → 项目工作台 → 新建城市项目（填城市/主管部门/业务域）。
+2. 项目详情 → 仓库页 → 添加前端 / 后端 / App 等多个仓库（填本地路径或远程地址）。
+3. 对仓库执行「初始化扫描」：目录测绘 → 模块聚类 → 文件/模块建档 → 历史高信号提交 → 两条时间线 → 建立分支水位线。
+4. 后续改动执行「增量同步」：只分析新提交，代码块级解析，两套时间线增量更新。
+5. 「需求与缺陷」登记事项（填相关路径更准）或 CSV 导入 → 自动关联提交 → 看证据矩阵 → 确认/否决推测关联。
+6. 模块 / 文件 / 提交页反向显示关联事项，点击跳回需求单。
 
-## 三、需求 / 缺陷追溯层（设计说明）
+未配 LLM 也能完整跑通（本地规则降级）；配置 OpenAI 兼容网关可提升归纳质量。
 
-### 3.1 定位
+## 设计边界（不做什么）
 
-禅道 / Jira 知道「这个 bug 提了、关了」，但不知道关它的那次提交改了哪几个函数、有没有测试；Git 知道改了什么，但不知道为什么。本系统补的是**两者之间的追溯层**，不是它们的替代品。
+不是项目管理工具：不做任务分配、工时、看板、迭代规划。不判断 bug 是否真的修好，只评估可验证证据的充分性。系统任何地方不输出「已修复/未修复」。
 
-### 3.2 三级关联，每级都标依据
+## 架构与文档
 
-| 级别 | 判定方式 | 置信度 | 默认状态 |
-|---|---|---|---|
-| 明确引用（强） | 提交说明含 `fix #123` / `closes BUG-1` / `需求: 789` / `PROJ-42` 等 | 100 | 自动确认 |
-| 语义推测（中） | 标题 / 描述关键词与提交说明、影响文件重合 | 35–85 | 待人工确认 |
-| 上下文推断（弱） | 同作者 + 14 天窗口 + 触及登记的相关路径 | 30 | 待人工确认 |
-| 人工挂载 | 用户确认或补登记路径后重跑关联 | — | 已确认 |
+- `ARCHITECTURE.md`：前后端唯一契约（目录结构、数据模型、API、鉴权、设计原则）。
+- `backend/`：分层后端 `core / db / models / schemas / repositories / services / analyzers / api/v1`。分析引擎在 `analyzers/`（`legacy` 分支为旧版实现）。
+- `frontend/`：Vue 3 + Vite + TS + Pinia + Router + Element Plus。
+- 旧版单体实现保存在 `legacy` 分支，仅供追溯。
 
-推测 / 推断关联默认待确认，**错了能看出来、能一键否决；否决后不再自动重建**（`link_commit` 与 `relink_repo` 双重幂等保护）。
-
-### 3.3 四项信号 → 三档结论
-
-| 信号 | 含义 |
-|---|---|
-| 显式引用 | 提交说明明确引用该编号（人工确认也计此项） |
-| 文件命中 | 改动文件与需求登记的相关路径有交集 |
-| 测试改动 | 改动涉及 `tests/`、`test_*.py`、`*.spec.*` 等 |
-| 修复声明 | 提交说明含 fix / 修复 / 解决 / 回归 / 兜底 等 |
-
-| 结论 | 触发条件 | 措辞 |
-|---|---|---|
-| 较强修复证据 | 命中 ≥3 项 | 明确写「系统不验证运行时结果，仍需人工确认实际效果」 |
-| 需人工复核 | 信号互相矛盾（如声明修复却没触及相关文件） | 说明矛盾点，建议人工确认 |
-| 仅有关联，证据不足 | 其余情况 | 只能说明「这条提交与事项有关」，不判断修复情况 |
-
-**系统任何地方都不会输出「已修复 / 未修复」。** 这是信任设计，与「证据不足就写原因未知」同源。
-
-### 3.4 动机升级
-
-显式关联（或人工确认关联）后，`_upgrade_motivation` 会把该提交的「改动动机」升级为需求单来源：
-
-- 原本是「原因未知（证据不足）」→ 直接替换为 `关联缺陷 #101：重复回调导致重复退款（来自需求登记）`；
-- 原本已有 commit message 证据 → **保留原文并追加**需求单引用，不覆盖已有证据；
-- `evidence_source` 标为「需求登记」，文件与模块时间线同步更新；
-- 用「升级标记」做幂等判断，重复同步不会重复追加。
-
-### 3.5 Scope 红线
-
-只保留四件事：实体登记、自动关联、证据评级、双向时间线。任务分配、工时、看板、迭代规划、状态流转一律不做——这些是项目管理工具的领域。
-
----
-
-## 四、LLM 配置（系统设置页）
-
-| 项 | 说明 |
-|---|---|
-| Base URL | OpenAI 兼容协议地址；兼容 DeepSeek / 通义千问 / 智谱 / Ollama 本地模型 |
-| API Key | 仅保存在本机 SQLite，不上传第三方；留空 = 本地规则模式 |
-| 模型名称 | 如 `gpt-4o-mini` / `deepseek-chat` / `qwen-plus` |
-| 单次分析最大 Diff 字符数 | 超限时按文件边界截断，控制 Token 成本 |
-| 仓库 Web 地址 | 可选；填写后文件与模块时间线的 commit 哈希变成可点击链接 |
-| 测试连接 | 只做一次最小 JSON 往返，不写业务数据；断网或错误凭证会明确报错 |
-
-所有 Prompt 内置铁律：**证据不足时动机必须写「原因未知（证据不足）」，严禁编造业务原因**。LLM 调用失败自动降级，不产生脏数据。关联引擎中 LLM 只做「模棱两可语义候选复核」与「证据解读」两个可选动作，**不参与定档**；AI 复核也只对新提交启用，控制成本。
-
----
-
-## 五、五条设计原则（已落实到代码）
-
-| 原则 | 实现位置 |
-|---|---|
-| 归纳不是罗列 | `llm_service.py` 的 `cluster_modules` / `analyze_commit` / `evolution_line` / `module_evolution` Prompt 显式要求跨提交综合判断；两个 `_fallback_evolution` 用确定性规则串职责阶段 |
-| 证据优先不脑补 | `signal_filter.extract_motivation` 判定无信息量提交说明；动机不足时强制覆写并标注 `evidence_source`；关联引擎三级证据均带出处 |
-| 高信号过滤 | `signal_filter.py`：锁文件 / 二进制 / 生成目录 / 纯格式化 / 仅注释 / 版本号递增一律过滤；结构性改动与风险关键词优先深挖 |
-| 当前态持续维护 | `analyzer._analyze_one_commit` 每次同步调用 `update_current_doc` 修订文件档案、调用 `_refresh_module_archive` 追加模块能力变化并重写两份 `.md` |
-| 结论可纠错 | 推测关联默认待确认，可确认 / 否决；否决后不重建；证据评级只做充分性判断，不替开发者下结论 |
-
----
-
-## 六、目录结构
+## 目录结构
 
 ```
 git-module-analyzer/
-├── requirements.txt          依赖
-├── run.py                    一键启动（建表 / 迁移 / 开浏览器 / Uvicorn）
-├── README.md
-├── .env.example              可选默认配置
-├── app/
-│   ├── main.py               FastAPI 入口、模板与静态资源
-│   ├── database.py           SQLite 连接、自动建表与老库字段迁移
-│   ├── models.py             11 张表（配置/仓库/分支水位线/模块/模块变更/模块候选/
-│   │                        文件/文件变更/提交分析/需求缺陷/需求提交关联）
-│   ├── schemas.py            Pydantic v2 入参与 LLM 结构化输出校验
-│   ├── git_service.py        原生 git CLI 封装（跨 Windows/macOS/Linux，UTF-8 容错）
-│   ├── diff_parser.py        diff → 函数/类代码块级解析 + hunk 降级
-│   ├── signal_filter.py      高信号过滤、风险判定、动机证据判定
-│   ├── issue_linker.py       引用解析 / 三级关联 / 四项信号 / 三档评级 / CSV 导入 / 人工复核
-│   ├── llm_service.py        LLM 网关 + 文件/模块能力 + 关联复核 + 全套本地规则降级
-│   ├── analyzer.py           初始化 / 增量同步 / 模块演进 / 新功能发现 / 需求关联 / 后台任务
-│   ├── routers/
-│   │   ├── pages.py          Web 页面路由（9 个页面，含反向关联注入）
-│   │   └── api.py            JSON API
-│   ├── templates/            base / index / modules / module_detail / files / file_detail /
-│   │                        commits / issues / issue_detail / settings
-│   └── static/               app.css / app.js
-└── workspace/                运行时自动创建
-    ├── db.sqlite3
-    └── repos/<repo_id>/{files,modules,repo}
+├── ARCHITECTURE.md         架构契约
+├── run.py                  一键启动（建库 + 前后端）
+├── backend/
+│   ├── alembic/            数据库迁移（多方言）
+│   └── app/
+│       ├── core/           config / security / deps / errors / bootstrap
+│       ├── db/             base(JsonType) / session(方言适配)
+│       ├── models/         user / project / knowledge
+│       ├── schemas/        auth / project / llm / common
+│       ├── repositories/   user / project / knowledge
+│       ├── services/       auth / project / analysis / issue
+│       ├── analyzers/      迁移自 legacy 的纯分析逻辑
+│       └── api/v1/         auth / users / projects / repositories / analysis / issues / settings
+└── frontend/
+    └── src/                api / stores / router / layouts / views / components / styles / types
 ```
 
----
+## API 速查
 
-## 七、JSON API 速查
+完整契约见 `ARCHITECTURE.md` 第 4 节；启动后端后访问 `http://127.0.0.1:8777/docs` 查看交互式 Swagger 文档（40 个路径 / 51 个操作）。
 
-### 仓库与分析
-
-| 方法 | 路径 | 用途 |
-|---|---|---|
-| GET | `/api/health` | 健康检查 |
-| GET/PUT | `/api/config` | 读取 / 保存 LLM 配置 |
-| POST | `/api/config/test` | 连通性测试 |
-| GET/POST | `/api/repos` | 仓库列表 / 添加仓库 |
-| GET/PUT/DELETE | `/api/repos/{id}` | 仓库详情 / 改分支 / 删除 |
-| POST | `/api/repos/{id}/initialize` | 启动初始化扫描（返回 job_id） |
-| POST | `/api/repos/{id}/sync` | 启动增量同步（可指定 branch） |
-| GET | `/api/jobs/{job_id}` | 任务进度与日志轮询 |
-| GET | `/api/stats?repo_id=` | 概览统计（含需求数、关联数、待确认数） |
-| GET | `/api/repos/{id}/modules` | 模块清单 |
-| GET | `/api/modules/{module_id}` | 模块详情：档案 + 模块时间线 + 文件清单 |
-| GET | `/api/repos/{id}/module-candidates` | 新功能模块候选列表 |
-| POST | `/api/module-candidates/{id}/confirm` | 确认候选为新模块 |
-| POST | `/api/module-candidates/{id}/ignore` | 忽略候选 |
-| GET | `/api/repos/{id}/files?q=&module=&risk=&page=` | 文件检索 |
-| GET | `/api/files/{id}?branch=&risk=&author=` | 文件档案 + 变更时间线 |
-| GET | `/api/files/{id}/doc` | 文件当前态 Markdown 原文 |
-| GET | `/api/repos/{id}/commits?q=&file=&branch=&risk=` | 提交检索 |
-| GET | `/api/repos/{id}/branches` | 分支水位线 |
-
-### 需求 / 缺陷追溯
-
-| 方法 | 路径 | 用途 |
-|---|---|---|
-| GET | `/api/repos/{id}/issues?q=&issue_type=&status=&assessment=` | 事项清单（含关联数、最佳证据评级） |
-| POST | `/api/repos/{id}/issues` | 登记事项并立即回填关联 |
-| POST | `/api/repos/{id}/issues/import` | CSV 导入（中英文列名别名，重复编号按更新） |
-| POST | `/api/repos/{id}/relink` | 重跑全仓关联（可传 `{"use_llm":true}`） |
-| GET | `/api/issues/{issue_id}` | 需求详情：关联提交、证据矩阵、涉及文件/模块、复核统计 |
-| PUT | `/api/issues/{issue_id}` | 修改事项（如补登记相关路径） |
-| DELETE | `/api/issues/{issue_id}` | 删除事项及其关联 |
-| POST | `/api/issue-links/{link_id}/confirm` | 人工确认关联（重算证据并升级动机） |
-| POST | `/api/issue-links/{link_id}/reject` | 否决关联（不再自动重建） |
-| GET | `/api/repos/{id}/issue-links` | 按提交 SHA 分组的反向关联（不含已否决） |
-
----
-
-## 八、验收自查
-
-1. 添加本地仓库并初始化 → 概览出现模块数、文件档案数、已分析提交数；模块清单里每个模块都有档案、职责与能力变化记录。
-2. 造几次改动并提交 → 增量同步 → 打开**模块详情**与**文件详情**，两边都出现新节点：能力变化 / 代码块、影响文件、动机（或「原因未知」）、commit 哈希。
-3. 模块与文件详情页顶部均出现跨提交的职责演进主线，不是孤立 diff 摘要。
-4. 造一次纯格式化提交和一次只改 `package-lock.json` 的提交 → 同步后这两条在提交检索页标记「已过滤」，两套时间线都不新增节点。
-5. 新建从未出现过的源码目录并提交 → 同步 → 模块清单顶部出现候选 → 确认后新模块建档、文件归属更新、首条时间线节点可追溯。
-6. **登记需求并填相关路径 → 造一条 `fix #编号` 且带测试文件的提交 → 同步**：需求详情出现「明确引用 + 四项信号全命中 + 较强修复证据」；文件/模块/提交页反向显示该事项；提交动机里出现需求单来源，证据标为「需求登记」。
-7. **造一条不带编号、但标题关键词重合的提交** → 出现「语义推测」且状态为待确认 → 点「否决」后重跑关联，该关联不再出现、也不被重建。
-8. 重复同步不产生重复事件与重复关联；动机不会被重复追加；错误凭证测试明确报错、不落脏数据；留空 API Key 时本地规则模式仍可完整跑通。
-
----
-
-## 九、常见问题
-
-- **提示「不是有效的 Git 仓库」**：路径需指向含 `.git` 的仓库根目录。
-- **远程克隆失败**：SSH 地址需本机已配置密钥；HTTPS 私有仓库建议使用本地已克隆好的路径接入。
-- **初始化很慢**：可调小「历史提交回溯数」（`history_limit`，默认 60）与建档文件上限（`max_files`，默认 300）；未配 LLM 时是纯本地计算，通常很快。
-- **commit 哈希不可点击**：在设置页填写「仓库 Web 地址」。
-- **代码块显示 hunk 级**：该文件语言未在函数边界规则中，或源码结构无法识别；系统按设计降级并标注精度，不会假装精确到函数。
-- **需求关联很少 / 全是「证据不足」**：优先补登记「相关路径」；另外语义匹配依赖标题与提交说明的关键词重合，若团队提交说明从不写编号，建议先推动 `fix #编号` 的写法，或改用禅道/Jira 的创建关闭时间窗去反查提交。
-- **推测关联错了**：在需求详情页点「否决」，之后不会再自动重建；点「确认」会按人工确认重算证据并升级动机。
-- **模块显示「沉睡」**：该模块超过 180 天没有模块级变更节点，状态自动置为 dormant；有新改动后自动回到活跃。
-- **pypi.org 下载极慢**：本环境实测清华源不可达、阿里云镜像可用，加 `-i https://mirrors.aliyun.com/pypi/simple/` 即可。
+| 分组 | 主要端点（前缀 `/api/v1`） |
+|---|---|
+| 认证 | `/auth/login` `/auth/me` `/auth/refresh` `/auth/register` |
+| 用户 | `/users` `/users/{id}/roles` |
+| 项目 | `/projects` `/projects/{id}` `/projects/{id}/overview` `/projects/{id}/members` |
+| 仓库 | `/projects/{id}/repositories` `/repositories/{id}/initialize` `/repositories/{id}/sync` `/jobs/{id}` |
+| 分析 | `/repositories/{id}/modules` `/files` `/commits` `/modules/{id}` `/files/{id}` |
+| 追溯 | `/repositories/{id}/issues` `/issues/{id}` `/issue-links/{id}/confirm\|reject` |
+| 设置 | `/settings/llm` `/settings/database` `/health` |
