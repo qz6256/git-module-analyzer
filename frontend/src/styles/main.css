@@ -635,7 +635,19 @@ pre code {
   border-radius: var(--radius-sm);
 }
 
-.el-menu-item.is-active {
+.el-menu-item:not(.is-active):hover,
+.el-sub-menu__title:hover {
+  background: var(--color-highlight) !important;
+  color: var(--color-foreground) !important;
+}
+
+.el-menu-item:not(.is-active):hover .el-icon,
+.el-sub-menu__title:hover .el-icon {
+  color: var(--color-foreground) !important;
+}
+
+.el-menu-item.is-active,
+.el-menu-item.is-active:hover {
   background: var(--color-accent-soft) !important;
   color: var(--color-accent) !important;
   font-weight: 600;
