@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}文件档案 · 文件变更历史知识库{% endblock %}
+{% block heading %}文件档案{% endblock %}
+{% block subtitle %}搜索任意文件，进入后查看它的演进主线与完整变更时间线{% endblock %}
+
+{% block content %}
+<div class="card">
+  <form class="filters" method="get" action="/files">
+    <input type="hidden" name="repo_id" value="{{ rid }}">
+    <input class="grow" type="text" name="q" value="{{ q }}" placeholder="搜索文件路径或职责关键词…">
+    <select name="module">
+      <option value="">全部模块</option>
+      {% for m in modules %}<option value="{{ m.name }}" {{ 'selected' if module == m.name else '' }}>{{ m.name }}</option>{% endfor %}
+    </select>
+    <select name="risk">
+      <option value="">全部风险</option>
+      {% for r in ['低','中','高'] %}<option value="{{ r }}" {{ 'selected' if risk == r else '' }}>{{ r }}风险</option>{% endfor %}
+    </select>
+    <button class="btn primary" type="submit">筛选</button>
+    <a class="btn" href="/files?repo_id={{ rid }}">重置</a>
+  </form>
+
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th style="width:34%">文件路径</th><th>当前职责</th><th>模块</th><th>语言</th><th>变更节点</th><th>风险</th><th>演进主线</th></tr></thead>
+    <tbody>
+    {% for f in files %}
+      <tr>
+        <td><a class="mono" href="/files/{{ f.id }}?repo_id={{ rid }}">{{ f.path }}</a></td>
+        <td class="small">{{ f.one_liner|truncate(58) }}</td>
+        <td class="small"><span class="badge badge-gray">{{ f.module_name }}</span></td>
+        <td class="small">{{ f.language }}</td>
+        <td>{{ f.change_count }}</td>
+        <td><span class="badge {{ f.risk_level|risk_class }}">{{ f.risk_level }}</span></td>
+        <td class="small muted">{{ f.evolution_line|truncate(46) or '—' }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="7"><div class="empty"><div class="big">没有匹配的文件档案</div>
+        若尚未初始化，请先到<a href="/?repo_id={{ rid }}">仓库概览</a>执行「初始化扫描」。</div></td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+
+  <div class="pager">
+    共 {{ total }} 个文件 · 第 {{ page }}/{{ pages }} 页
+    {% if page > 1 %}<a class="btn sm" href="?repo_id={{ rid }}&q={{ q }}&module={{ module }}&risk={{ risk }}&page={{ page-1 }}">上一页</a>{% endif %}
+    {% if page < pages %}<a class="btn sm" href="?repo_id={{ rid }}&q={{ q }}&module={{ module }}&risk={{ risk }}&page={{ page+1 }}">下一页</a>{% endif %}
+  </div>
+</div>
+{% endblock %}

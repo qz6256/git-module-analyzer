@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}{{ m.name }} · 模块变更历史{% endblock %}
+{% block heading %}模块变更历史{% endblock %}
+{% block subtitle %}功能视角：职责演进 · 能力变化 · 影响文件 · 可回溯提交{% endblock %}
+
+{% block content %}
+<div class="hero-card">
+  <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start">
+    <div style="min-width:0">
+      <div class="hero-path">{{ m.name }}</div>
+      <div class="hero-oneliner">{{ m.one_liner or m.responsibility }}</div>
+    </div>
+    <div class="hero-tags">
+      <span class="badge badge-blue">{{ m.file_count }} 个文件</span>
+      <span class="badge badge-gray">{{ m.change_count or 0 }} 次模块变更</span>
+      <span class="badge {{ 'badge-gray' if m.status == 'dormant' else 'badge-green' }}">{{ '沉睡模块' if m.status == 'dormant' else '活跃模块' }}</span>
+    </div>
+  </div>
+  <div style="margin-top:14px" class="evolution">
+    <span class="lbl">职责演进主线（跨提交归纳）</span>
+    {{ m.evolution_line or '暂无足够节点归纳主线，执行更多同步后自动生成。' }}
+  </div>
+  <div style="margin-top:10px">
+    {% for r in m.path_rules %}<code style="margin-right:6px">{{ r }}</code>{% endfor %}
+  </div>
+</div>
+
+<div class="split">
+  <div>
+    <div class="card">
+      <div class="card-head">
+        <h3>模块变更时间线（{{ events|length }} 个节点）</h3>
+        <a class="btn sm" href="/commits?repo_id={{ m.repo_id }}">相关提交检索 →</a>
+      </div>
+      <form class="filters" method="get" action="/modules/{{ m.id }}">
+        <input type="hidden" name="repo_id" value="{{ m.repo_id }}">
+        <select name="branch">
+          <option value="">全部分支</option>
+          {% for b in branches %}<option value="{{ b }}" {{ 'selected' if branch == b else '' }}>{{ b }}</option>{% endfor %}
+        </select>
+        <button class="btn sm" type="submit">筛选</button>
+        <a class="btn sm" href="/modules/{{ m.id }}?repo_id={{ m.repo_id }}">重置</a>
+      </form>
+      {% if not events %}
+        <div class="empty"><div class="big">暂无模块级变更节点</div>
+          执行一次增量同步后，该模块每次被改动都会在这里留下能力变化记录。</div>
+      {% else %}
+      <div class="timeline">
+        {% for e in events %}
+        <div class="tl-item">
+          <div class="tl-dot {{ 'high' if e.risk_level == '高' else ('mid' if e.risk_level == '中' else '') }}"></div>
+          <div class="tl-head">
+            {% if commit_base %}
+              <a class="tl-sha" href="{{ commit_base }}/commit/{{ e.commit_sha }}" target="_blank">{{ e.commit_sha|short_sha }} ↗</a>
+            {% else %}
+              <span class="tl-sha" title="{{ e.commit_sha }}">{{ e.commit_sha|short_sha }}</span>
+            {% endif %}
+            <span class="badge {{ 'badge-red' if e.risk_level == '高' else ('badge-blue' if e.risk_level == '中' else 'badge-gray') }}">{{ e.risk_level }}风险</span>
+            <span class="badge badge-gray">{{ e.branch }}</span>
+            <span class="tl-meta">{{ e.author }} · {{ e.committed_at|dt }}</span>
+            <button class="btn sm" onclick="copyText('{{ e.commit_sha }}', this)">复制 SHA</button>
+          </div>
+          <div class="tl-body">
+            {% if e.commit_message.strip() %}
+            <div class="tl-row"><span class="tl-label">提交说明</span><span class="mono small">{{ e.commit_message.strip()|truncate(180) }}</span></div>
+            {% endif %}
+            <div class="tl-row"><span class="tl-label">能力变化</span><strong>{{ e.capability_delta or '无明确能力变化（证据不足）' }}</strong></div>
+            <div class="tl-row"><span class="tl-label">综合结论</span>{{ e.summary }}</div>
+            {% if e.affected_files %}
+            <div class="tl-row"><span class="tl-label">影响文件</span>
+              {% for p in e.affected_files[:6] %}<code style="margin-right:5px">{{ p }}</code>{% endfor %}
+            </div>
+            {% endif %}
+            <div class="tl-row"><span class="tl-label">改动动机</span>
+              <span class="{{ 'faint' if e.evidence_source == '未知' else '' }}">{{ e.motivation }}</span>
+              <span class="badge badge-gray">证据：{{ e.evidence_source }}</span>
+              <span class="faint small">· {{ e.analysis_mode }}</span>
+            </div>
+            {% set refs = issue_by_sha.get(e.commit_sha, []) %}
+            {% if refs %}
+            <div class="tl-row"><span class="tl-label">关联事项</span>
+              {% for r in refs %}
+              <a class="badge badge-blue" href="/issues/{{ r.issue_id }}?repo_id={{ rid }}" title="{{ r.title }}">{{ r.external_id }} · {{ r.link_type_cn }}</a>
+              {% endfor %}
+            </div>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <div class="card-head">
+        <h3>当前态功能说明</h3>
+        <button class="btn sm" onclick="copyText(document.getElementById('raw-module-doc').textContent, this)">复制原文</button>
+      </div>
+      <div class="md-body">{{ doc_html|safe }}</div>
+      <div class="faint small" style="margin-top:14px;border-top:1px solid var(--border);padding-top:10px">
+        档案文件：{{ m.doc_path or '未落盘' }}
+        {% if doc_disk_exists %}<span class="badge badge-green">已写入磁盘</span>{% endif %}
+        <br>每次模块被修改后，这里会追加能力变化记录。
+      </div>
+      <pre id="raw-module-doc" style="display:none">{{ m.current_doc }}</pre>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h3>关联需求 / 缺陷（{{ related_issues|length }}）</h3>
+        <a class="btn sm" href="/issues?repo_id={{ rid }}">全部事项 →</a>
+      </div>
+      {% if not related_issues %}
+        <div class="small muted">该模块的变更尚未关联到登记事项。</div>
+      {% else %}
+        {% for r in related_issues %}
+        <div class="issue-ref">
+          <a href="/issues/{{ r.id }}?repo_id={{ rid }}"><strong>{{ r.external_id }}</strong> · {{ r.title|truncate(46) }}</a>
+          <div style="margin-top:5px">
+            <span class="badge {{ 'badge-red' if r.issue_type == 'bug' else 'badge-blue' }}">{{ '缺陷' if r.issue_type == 'bug' else '需求' }}</span>
+            <span class="badge {{ 'badge-green' if r.best == 'strong' else ('badge-amber' if r.best == 'review' else 'badge-gray') }}">{{ r.best_label or '证据不足' }}</span>
+          </div>
+        </div>
+        {% endfor %}
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h3>模块内文件（{{ module_files|length }}）</h3>
+        <a class="btn sm" href="/files?repo_id={{ m.repo_id }}&module={{ m.name|urlencode }}">全部文件 →</a>
+      </div>
+      {% if not module_files %}
+        <div class="empty">该模块下暂无已建档文件。</div>
+      {% else %}
+      <table>
+        <thead><tr><th>文件</th><th>职责</th><th>节点</th></tr></thead>
+        <tbody>
+        {% for f in module_files[:20] %}
+          <tr><td><a href="/files/{{ f.id }}?repo_id={{ m.repo_id }}" class="mono small">{{ f.path }}</a></td>
+              <td class="small">{{ f.one_liner|truncate(50) }}</td>
+              <td><span class="badge badge-gray">{{ f.change_count }}</span></td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h3>模块视角回答什么</h3>
+      <div class="small muted">
+        <div class="kv"><span class="k">文件视角</span><span>某个文件为什么长这样</span></div>
+        <div class="kv"><span class="k">模块视角</span><span>这块功能从什么时候起多了什么能力、边界如何变化</span></div>
+        <div class="kv"><span class="k">新功能</span><span>新增源码若不属于现有模块，会在模块清单顶部出现候选</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,245 @@
+{% extends "base.html" %}
+{% block title %}需求 / 缺陷追溯 · 代码变更知识库{% endblock %}
+{% block heading %}需求与缺陷追溯{% endblock %}
+{% block subtitle %}把「为什么要改」接到「改了什么」——禅道 / Jira 与 Git 之间的追溯层{% endblock %}
+
+{% block content %}
+<div class="hero-card">
+  <div class="hero-path">需求 / 缺陷 → Git 提交 → 文件 / 模块档案</div>
+  <div class="hero-oneliner">只做四件事：登记事项、自动关联提交、评估修复证据充分性、双向跳转。</div>
+  <div style="margin-top:12px" class="small muted">
+    这里不是项目管理工具：不做任务分配、工时统计、看板拖拽与迭代规划。
+    系统也不会判断「这个 bug 是否真的修好了」——只把可验证的证据摆出来，由开发者拍板。
+  </div>
+</div>
+
+<div class="grid grid-4" style="margin:16px 0">
+  <div class="metric"><div class="label">登记事项</div><div class="value">{{ all_count }}</div></div>
+  <div class="metric"><div class="label">较强证据</div><div class="value">{{ cnt_strong }}</div></div>
+  <div class="metric"><div class="label">需人工复核</div><div class="value">{{ cnt_review }}</div></div>
+  <div class="metric"><div class="label">待确认关联</div><div class="value">{{ pending_reviews }}</div></div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h3>事项清单（{{ total }}{% if total != all_count %} / {{ all_count }}{% endif %}）</h3>
+    <div class="btn-row">
+      <button class="btn sm primary" onclick="openModal('modal-issue')">+ 登记事项</button>
+      <button class="btn sm" onclick="openModal('modal-import')">CSV 导入</button>
+      <button class="btn sm" onclick="relinkAll()">重跑关联</button>
+      <a class="btn sm" href="/commits?repo_id={{ rid }}">提交分析 →</a>
+    </div>
+  </div>
+
+  <form class="filters" method="get" action="/issues">
+    <input type="hidden" name="repo_id" value="{{ rid }}">
+    <input class="grow" type="text" name="q" value="{{ q }}" placeholder="编号 / 标题 / 描述关键词…">
+    <select name="issue_type">
+      <option value="">全部类型</option>
+      <option value="bug" {{ 'selected' if issue_type == 'bug' else '' }}>缺陷 bug</option>
+      <option value="story" {{ 'selected' if issue_type == 'story' else '' }}>需求 story</option>
+    </select>
+    <select name="status">
+      <option value="">全部状态</option>
+      {% for v, l in [('open','待处理'),('resolved','已解决'),('closed','已关闭')] %}
+      <option value="{{ v }}" {{ 'selected' if status == v else '' }}>{{ l }}</option>
+      {% endfor %}
+    </select>
+    <select name="assessment">
+      <option value="">全部证据评级</option>
+      <option value="strong" {{ 'selected' if assessment == 'strong' else '' }}>较强证据</option>
+      <option value="review" {{ 'selected' if assessment == 'review' else '' }}>需人工复核</option>
+      <option value="weak" {{ 'selected' if assessment == 'weak' else '' }}>证据不足</option>
+      <option value="none" {{ 'selected' if assessment == 'none' else '' }}>无关联</option>
+    </select>
+    <button class="btn primary" type="submit">筛选</button>
+    <a class="btn" href="/issues?repo_id={{ rid }}">重置</a>
+  </form>
+
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>编号</th><th>类型</th><th>标题</th><th>关联提交</th><th>最佳证据评级</th><th>状态</th><th>来源</th><th>操作</th></tr></thead>
+    <tbody>
+    {% for it in issues %}
+      <tr>
+        <td style="white-space:nowrap">
+          {% if it.external_url %}<a class="mono" href="{{ it.external_url }}" target="_blank">{{ it.external_id }} ↗</a>
+          {% else %}<span class="mono">{{ it.external_id }}</span>{% endif %}
+        </td>
+        <td><span class="badge {{ 'badge-red' if it.issue_type == 'bug' else 'badge-blue' }}">{{ '缺陷' if it.issue_type == 'bug' else '需求' }}</span></td>
+        <td class="small"><a href="/issues/{{ it.id }}?repo_id={{ rid }}"><strong>{{ it.title or '（无标题）' }}</strong></a>
+          {% if it.description %}<div class="faint">{{ it.description|truncate(52) }}</div>{% endif %}</td>
+        <td class="small">
+          {{ it.link_count }} 条
+          {% if it.confirmed_count %}<div class="faint">已确认 {{ it.confirmed_count }}</div>{% endif %}
+          {% if it.pending_count %}<div class="faint">待确认 {{ it.pending_count }}</div>{% endif %}
+        </td>
+        <td>
+          {% if it.best_assessment == 'strong' %}<span class="badge badge-green">较强证据</span>
+          {% elif it.best_assessment == 'review' %}<span class="badge badge-amber">需人工复核</span>
+          {% elif it.best_assessment == 'weak' %}<span class="badge badge-gray">证据不足</span>
+          {% else %}<span class="badge badge-gray">无关联</span>{% endif %}
+        </td>
+        <td class="small">{{ {'open':'待处理','resolved':'已解决','closed':'已关闭'}.get(it.status, it.status) }}</td>
+        <td class="small faint">{{ it.source }}</td>
+        <td style="white-space:nowrap">
+          <a class="btn sm" href="/issues/{{ it.id }}?repo_id={{ rid }}">追溯详情</a>
+          <button class="btn sm" onclick="deleteIssue({{ it.id }}, {{ it.external_id|tojson }})">删除</button>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="8"><div class="empty">
+        <div class="big">还没有登记任何需求 / 缺陷</div>
+        点「+ 登记事项」手工录入，或用「CSV 导入」粘贴禅道 / Jira 导出的数据。<br>
+        登记时建议同时填写「相关路径」，关联判定会准确得多。
+      </div></td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<div class="grid grid-2">
+  <div class="card">
+    <h3>三级关联，每一级都标注依据</h3>
+    <div class="small muted">
+      <div class="kv"><span class="k">明确引用 · 强</span><span>提交说明含 <code>fix #123</code> / <code>closes BUG-1</code> / <code>需求: 789</code> 等，直接绑定</span></div>
+      <div class="kv"><span class="k">语义推测 · 中</span><span>标题/描述关键词与提交说明、diff 命中，带置信度，默认待确认</span></div>
+      <div class="kv"><span class="k">上下文推断 · 弱</span><span>同作者 + 14 天窗口 + 触及登记的相关路径，仅作提示</span></div>
+      <div class="kv"><span class="k">人工挂载</span><span>可确认或否决；否决后不再自动重建，避免误报反复出现</span></div>
+    </div>
+  </div>
+  <div class="card">
+    <h3>四项信号 → 三档结论（不是「是否修复」）</h3>
+    <div class="small muted">
+      <div class="kv"><span class="k">信号</span><span>显式引用 · 文件命中 · 测试改动 · 修复声明</span></div>
+      <div class="kv"><span class="k">较强证据</span><span>命中 ≥3 项；仍需人工确认实际效果</span></div>
+      <div class="kv"><span class="k">需人工复核</span><span>信号互相矛盾（如声明修复却没触及相关文件）</span></div>
+      <div class="kv"><span class="k">证据不足</span><span>只能说明「这条提交与事项有关」，不判断结果</span></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block modals %}
+<div id="modal-issue" class="modal-mask">
+  <div class="modal" style="max-width:620px">
+    <h3>登记需求 / 缺陷</h3>
+    <form id="form-issue">
+      <div class="grid grid-2">
+        <div class="field"><label>编号 *（提交里引用的写法，如 #101 / BUG-1 / PROJ-42）</label>
+          <input id="is-ext" required placeholder="#101"></div>
+        <div class="field"><label>类型</label>
+          <select id="is-type"><option value="bug">缺陷 bug</option><option value="story">需求 story</option></select></div>
+      </div>
+      <div class="field"><label>标题 *</label><input id="is-title" required placeholder="重复回调导致重复退款"></div>
+      <div class="field"><label>原始描述（作为「为什么改」的权威来源）</label>
+        <textarea id="is-desc" rows="3" placeholder="现象、复现条件、期望行为，或需求原始说明"></textarea></div>
+      <div class="grid grid-2">
+        <div class="field"><label>状态</label>
+          <select id="is-status"><option value="open">待处理</option><option value="resolved">已解决</option><option value="closed">已关闭</option></select></div>
+        <div class="field"><label>外部链接（禅道 / Jira 页面）</label><input id="is-url" placeholder="https://…"></div>
+      </div>
+      <div class="grid grid-2">
+        <div class="field"><label>报告人</label><input id="is-reporter" placeholder="可选"></div>
+        <div class="field"><label>提出时间</label><input id="is-date" type="date"></div>
+      </div>
+      <div class="field"><label>相关路径（逗号或换行分隔，强烈建议填写）</label>
+        <textarea id="is-paths" rows="2" placeholder="src/order/refund.py, src/payment/gateway.py"></textarea>
+        <div class="hint">关联判定与「文件命中」信号都以此为准；留空则退化为按标题关键词猜文件路径，判定力较弱。</div></div>
+      <div class="modal-foot">
+        <button type="button" class="btn" onclick="closeModal('modal-issue')">取消</button>
+        <button type="submit" class="btn primary" id="btn-issue-save">保存并自动关联</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="modal-import" class="modal-mask">
+  <div class="modal" style="max-width:680px">
+    <h3>CSV 导入（禅道 / Jira / 自建台账）</h3>
+    <div class="field"><label>来源标记</label>
+      <select id="imp-source"><option value="csv">CSV 导入</option><option value="zentao">禅道导出</option><option value="jira">Jira 导出</option></select></div>
+    <div class="field"><label>粘贴 CSV 文本（首行必须是表头，编号列必填）</label>
+      <textarea id="imp-text" rows="10" class="mono" style="font-size:12px"></textarea>
+      <div class="hint">支持列名：external_id/编号/ID、issue_type/类型、title/标题、description/描述、status/状态、external_url/链接、reporter/创建人、related_paths/相关路径、keywords/关键词、occurred_at/创建时间。重复编号按更新处理。</div></div>
+    <details style="margin-bottom:12px">
+      <summary class="small muted" style="cursor:pointer">查看示例格式</summary>
+      <pre class="mono small" style="white-space:pre-wrap;background:var(--color-background-tertiary);padding:10px;border-radius:6px;margin-top:8px">{{ csv_sample }}</pre>
+    </details>
+    <div class="modal-foot">
+      <button type="button" class="btn" onclick="closeModal('modal-import')">取消</button>
+      <button type="button" class="btn primary" id="btn-import-save" onclick="importIssues()">导入并关联</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const f = document.getElementById('form-issue');
+  if (f) f.addEventListener('submit', createIssue);
+});
+
+async function createIssue(ev) {
+  ev.preventDefault();
+  const paths = document.getElementById('is-paths').value
+    .split(/[,，\n]+/).map(s => s.trim()).filter(Boolean);
+  const payload = {
+    external_id: document.getElementById('is-ext').value.trim(),
+    issue_type: document.getElementById('is-type').value,
+    title: document.getElementById('is-title').value.trim(),
+    description: document.getElementById('is-desc').value.trim(),
+    status: document.getElementById('is-status').value,
+    external_url: document.getElementById('is-url').value.trim(),
+    reporter: document.getElementById('is-reporter').value.trim(),
+    related_paths: paths,
+    occurred_at: document.getElementById('is-date').value
+  };
+  const btn = document.getElementById('btn-issue-save');
+  btn.disabled = true; btn.textContent = '保存中…';
+  try {
+    const d = await api('/api/repos/{{ rid }}/issues', { method: 'POST', body: payload });
+    toast('已登记，自动新增 ' + d.new_links + ' 条关联');
+    closeModal('modal-issue');
+    setTimeout(() => location.reload(), 800);
+  } catch (e) { toast(e.message, true); }
+  finally { btn.disabled = false; btn.textContent = '保存并自动关联'; }
+}
+
+async function importIssues() {
+  const text = document.getElementById('imp-text').value;
+  if (!text.trim()) { toast('请先粘贴 CSV 内容', true); return; }
+  const btn = document.getElementById('btn-import-save');
+  btn.disabled = true; btn.textContent = '导入中…';
+  try {
+    const d = await api('/api/repos/{{ rid }}/issues/import', {
+      method: 'POST',
+      body: { csv_text: text, source: document.getElementById('imp-source').value }
+    });
+    toast('导入 ' + d.created + ' 条 / 更新 ' + d.updated + ' 条，新增 ' + d.new_links + ' 条关联');
+    closeModal('modal-import');
+    setTimeout(() => location.reload(), 900);
+  } catch (e) { toast(e.message, true); }
+  finally { btn.disabled = false; btn.textContent = '导入并关联'; }
+}
+
+async function relinkAll() {
+  try {
+    const d = await api('/api/repos/{{ rid }}/relink', { method: 'POST', body: { use_llm: false } });
+    toast('重跑完成：新增 ' + d.new_links + ' 条关联，共扫描 ' + d.commits + ' 条提交');
+    setTimeout(() => location.reload(), 900);
+  } catch (e) { toast(e.message, true); }
+}
+
+async function deleteIssue(id, ext) {
+  if (!confirm('确定删除 ' + ext + ' 及其全部关联记录？')) return;
+  try {
+    await api('/api/issues/' + id, { method: 'DELETE' });
+    toast('已删除');
+    setTimeout(() => location.reload(), 600);
+  } catch (e) { toast(e.message, true); }
+}
+</script>
+{% endblock %}

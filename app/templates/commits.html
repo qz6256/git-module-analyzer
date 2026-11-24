@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}提交分析 · 文件变更历史知识库{% endblock %}
+{% block heading %}提交分析记录{% endblock %}
+{% block subtitle %}按文件、分支、风险等级、提交人检索；低信号提交在此可查但不会污染文件时间线{% endblock %}
+
+{% block content %}
+<div class="card">
+  <form class="filters" method="get" action="/commits">
+    <input type="hidden" name="repo_id" value="{{ rid }}">
+    <input class="grow" type="text" name="q" value="{{ q }}" placeholder="提交说明 / 结论 / SHA 关键词…">
+    <input type="text" name="file" value="{{ file }}" placeholder="涉及文件路径" style="min-width:170px">
+    <input type="text" name="author" value="{{ author }}" placeholder="提交人" style="min-width:110px">
+    <select name="branch">
+      <option value="">全部分支</option>
+      {% for b in branch_names %}<option value="{{ b }}" {{ 'selected' if branch == b else '' }}>{{ b }}</option>{% endfor %}
+    </select>
+    <select name="risk">
+      <option value="">全部风险</option>
+      {% for r in ['低','中','高'] %}<option value="{{ r }}" {{ 'selected' if risk == r else '' }}>{{ r }}风险</option>{% endfor %}
+    </select>
+    <select name="only_high">
+      <option value="">全部提交</option>
+      <option value="1" {{ 'selected' if only_high == '1' else '' }}>仅高信号</option>
+    </select>
+    <button class="btn primary" type="submit">筛选</button>
+    <a class="btn" href="/commits?repo_id={{ rid }}">重置</a>
+  </form>
+
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>提交</th><th>分支 / 作者 / 时间</th><th>分析结论</th><th>影响文件</th><th>动机与证据</th><th>风险</th><th>模式</th></tr></thead>
+    <tbody>
+    {% for c in commits %}
+      <tr>
+        <td style="white-space:nowrap">
+          {% if commit_base %}<a class="mono" href="{{ commit_base }}/commit/{{ c.commit_sha }}" target="_blank">{{ c.commit_sha|short_sha }} ↗</a>
+          {% else %}<span class="mono" title="{{ c.commit_sha }}">{{ c.commit_sha|short_sha }}</span>{% endif %}
+          {% if not c.is_high_signal %}<div style="margin-top:4px"><span class="badge badge-gray">已过滤</span></div>{% endif %}
+        </td>
+        <td class="small">{{ c.branch }}<div class="faint">{{ c.author }}</div><div class="faint">{{ c.committed_at|dt }}</div></td>
+        <td class="small">
+          {{ c.summary }}
+          {% if c.message.strip() %}<div class="faint mono" style="margin-top:4px">{{ c.message.strip()|truncate(90) }}</div>{% endif %}
+          {% if c.filter_reason %}<div class="faint" style="margin-top:4px">过滤依据：{{ c.filter_reason|truncate(80) }}</div>{% endif %}
+        </td>
+        <td class="small">
+          {% for p in c.affected_files[:4] %}
+            <div class="mono" style="word-break:break-all">{{ p }}</div>
+          {% endfor %}
+          {% if c.affected_files|length > 4 %}<div class="faint">…共 {{ c.affected_files|length }} 个</div>{% endif %}
+          <div class="faint">+{{ c.diff_stats.get('added',0) }} / -{{ c.diff_stats.get('deleted',0) }} 行</div>
+        </td>
+        <td class="small">{{ c.motivation|truncate(70) }}
+          <div class="faint">证据：{{ c.evidence_source }}</div>
+          {% set refs = issue_by_sha.get(c.commit_sha, []) %}
+          {% if refs %}<div style="margin-top:5px">
+            {% for r in refs %}<a class="badge badge-blue" href="/issues/{{ r.issue_id }}?repo_id={{ rid }}" title="{{ r.title }} · {{ r.link_type_cn }}">{{ r.external_id }}</a> {% endfor %}
+          </div>{% endif %}
+        </td>
+        <td><span class="badge {{ c.risk_level|risk_class }}">{{ c.risk_level }}</span></td>
+        <td class="small faint">{{ c.analysis_mode }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="7"><div class="empty"><div class="big">没有匹配的提交记录</div>
+        请先执行初始化扫描或增量同步。</div></td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+
+  <div class="pager">
+    共 {{ total }} 条 · 第 {{ page }}/{{ pages }} 页
+    {% if page > 1 %}<a class="btn sm" href="?repo_id={{ rid }}&q={{ q }}&file={{ file }}&author={{ author }}&branch={{ branch }}&risk={{ risk }}&only_high={{ only_high }}&page={{ page-1 }}">上一页</a>{% endif %}
+    {% if page < pages %}<a class="btn sm" href="?repo_id={{ rid }}&q={{ q }}&file={{ file }}&author={{ author }}&branch={{ branch }}&risk={{ risk }}&only_high={{ only_high }}&page={{ page+1 }}">下一页</a>{% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <h3>高信号过滤规则</h3>
+  <div class="small muted">
+    以下改动会被过滤、不进入文件时间线：锁文件（package-lock.json / go.sum / poetry.lock 等）、
+    二进制与图片、node_modules/dist 等生成目录、纯空白与格式化调整、仅注释或文案微调、版本号递增、自动生成文件。
+    提交说明命中 fix / 重构 / 兼容 / 幂等 / 超时 / 权限 / 回滚等关键词，或检测到函数/类增删、签名变更，会优先深挖。
+  </div>
+</div>
+{% endblock %}

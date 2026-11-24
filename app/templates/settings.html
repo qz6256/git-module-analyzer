@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}系统设置 · 文件变更历史知识库{% endblock %}
+{% block heading %}系统设置{% endblock %}
+{% block subtitle %}LLM 接口参数持久化保存在本地 SQLite，兼容 .env 默认值{% endblock %}
+
+{% block content %}
+<div class="split">
+  <div class="card">
+    <div class="card-head">
+      <h3>LLM 接口配置</h3>
+      <span class="badge {{ 'badge-blue' if llm_mode == 'LLM' else 'badge-amber' }}">当前：{{ llm_mode }}模式</span>
+    </div>
+    <form id="form-config">
+      <div class="field">
+        <label>启用 LLM 分析（关闭则强制本地规则模式）</label>
+        <select id="cf-enabled">
+          <option value="1" {{ 'selected' if cfg.llm_enabled else '' }}>启用</option>
+          <option value="0" {{ 'selected' if not cfg.llm_enabled else '' }}>关闭</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Base URL</label>
+        <input type="text" id="cf-base" value="{{ cfg.base_url }}" placeholder="https://api.openai.com/v1">
+        <div class="hint">兼容 OpenAI 协议：DeepSeek / 通义千问 / 智谱 / Ollama 本地模型等。</div>
+      </div>
+      <div class="field">
+        <label>API Key</label>
+        <input type="password" id="cf-key" value="{{ cfg.api_key }}" placeholder="sk-...">
+        <div class="hint">仅保存在本机 SQLite，不会上传到任何第三方。留空即可使用本地规则模式。</div>
+      </div>
+      <div class="grid grid-2">
+        <div class="field"><label>模型名称</label><input type="text" id="cf-model" value="{{ cfg.model }}"></div>
+        <div class="field"><label>单次分析最大 Diff 字符数</label><input type="number" id="cf-max" value="{{ cfg.max_diff_chars }}" min="1000" max="100000" step="1000"></div>
+      </div>
+      <div class="field">
+        <label>仓库 Web 地址（用于 commit 哈希跳转，可选）</label>
+        <input type="text" id="cf-web" value="{{ cfg.commit_web_base_url }}" placeholder="https://github.com/org/repo">
+        <div class="hint">填写后，时间线上的 commit 哈希会变成可点击链接，直达仓库 Web 端该提交。</div>
+      </div>
+      <div class="btn-row" style="margin-top:18px">
+        <button type="submit" class="btn primary" id="btn-save">保存配置</button>
+        <button type="button" class="btn" id="btn-test" onclick="testConfig()">测试连接</button>
+      </div>
+      <div id="test-result" class="small" style="margin-top:12px"></div>
+    </form>
+  </div>
+
+  <div>
+    <div class="card">
+      <h3>本地规则模式说明</h3>
+      <div class="small muted">
+        未配置 API Key、未启用 LLM 或调用失败时，系统会<strong>自动降级</strong>为确定性本地规则，
+        整套功能仍可完整跑通（模块聚类、文件基线档案、代码块级解析、变更时间线、职责演进主线、当前态文档修订）。<br><br>
+        区别在于：本地规则不会对代码做语义归纳，一句话职责与文档说明基于文件名、目录、可识别的函数/类清单生成；
+        改动动机严格取自提交说明，信息不足时明确写「原因未知（证据不足）」，绝不脑补。<br><br>
+        配置可用 LLM 后，重新执行「初始化扫描」即可获得更高质量的归纳结果。
+      </div>
+    </div>
+    <div class="card">
+      <h3>四条设计原则</h3>
+      <div class="small muted">
+        <div class="kv"><span class="k">归纳</span><span>跨提交串成职责演进主线，不复述 diff</span></div>
+        <div class="kv"><span class="k">证据</span><span>动机只取自提交说明/PR；不足即标注原因未知</span></div>
+        <div class="kv"><span class="k">过滤</span><span>跳过格式化/锁文件/注释，控制 Token 成本</span></div>
+        <div class="kv"><span class="k">保鲜</span><span>每次同步增量修订当前态文档，避免过期</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>运行时位置</h3>
+      <div class="small muted">
+        <div class="kv"><span class="k">数据库</span><span class="mono">workspace/db.sqlite3</span></div>
+        <div class="kv"><span class="k">文件档案</span><span class="mono">workspace/repos/&lt;id&gt;/files/</span></div>
+        <div class="kv"><span class="k">模块档案</span><span class="mono">workspace/repos/&lt;id&gt;/modules/</span></div>
+        <div class="kv"><span class="k">克隆仓库</span><span class="mono">workspace/repos/&lt;id&gt;/repo/</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('form-config').addEventListener('submit', async function (ev) {
+  ev.preventDefault();
+  const btn = document.getElementById('btn-save');
+  btn.disabled = true; btn.textContent = '保存中…';
+  try {
+    await api('/api/config', { method: 'PUT', body: {
+      base_url: document.getElementById('cf-base').value.trim(),
+      api_key: document.getElementById('cf-key').value,
+      model: document.getElementById('cf-model').value.trim(),
+      max_diff_chars: parseInt(document.getElementById('cf-max').value || '12000', 10),
+      commit_web_base_url: document.getElementById('cf-web').value.trim(),
+      llm_enabled: document.getElementById('cf-enabled').value === '1'
+    }});
+    toast('配置已保存到本地 SQLite');
+    setTimeout(() => location.reload(), 800);
+  } catch (e) { toast(e.message, true); }
+  finally { btn.disabled = false; btn.textContent = '保存配置'; }
+});
+
+async function testConfig() {
+  const btn = document.getElementById('btn-test');
+  const out = document.getElementById('test-result');
+  btn.disabled = true; btn.textContent = '测试中…';
+  out.innerHTML = '<span class="muted">正在连接模型接口…</span>';
+  try {
+    const d = await api('/api/config/test', { method: 'POST', body: {} });
+    out.innerHTML = '<span class="badge ' + (d.ok ? 'badge-green' : 'badge-red') + '">' +
+      (d.ok ? '成功' : '失败') + '</span> <span class="muted">' +
+      d.message.replace(/</g, '&lt;') + '</span>';
+  } catch (e) {
+    out.innerHTML = '<span class="badge badge-red">失败</span> <span class="muted">' +
+      e.message.replace(/</g, '&lt;') + '</span>';
+  } finally { btn.disabled = false; btn.textContent = '测试连接'; }
+}
+</script>
+{% endblock %}

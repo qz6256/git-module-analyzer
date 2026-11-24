@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}功能模块树 · 代码变更历史知识库{% endblock %}
+{% block heading %}功能模块树{% endblock %}
+{% block subtitle %}宏观视角：冷启动识别功能，提交持续演进，新功能自动发现候选{% endblock %}
+
+{% block content %}
+{% if candidates %}
+<div class="card" style="border-color:var(--accent,#378add)">
+  <div class="card-head">
+    <h3>新发现的功能模块候选（{{ candidates|length }}）</h3>
+    <span class="badge badge-blue">等待确认</span>
+  </div>
+  <div class="small muted" style="margin-bottom:12px">
+    这些新增源码文件不属于任何现有模块。确认后会建立正式模块、重新归属文件并开始累积模块级变更历史；忽略则不再提示。
+  </div>
+  {% for c in candidates %}
+  <div class="card" style="margin:0 0 10px 0;background:var(--color-background-tertiary,transparent)">
+    <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:flex-start">
+      <div>
+        <strong style="font-size:14px">{{ c.name }}</strong>
+        <div class="muted small" style="margin-top:5px">{{ c.reason }}</div>
+      </div>
+      <div class="btn-row">
+        <button class="btn sm primary" onclick="confirmCandidate({{ c.id }}, {{ c.name|tojson }})">确认为模块</button>
+        <button class="btn sm" onclick="ignoreCandidate({{ c.id }})">忽略</button>
+      </div>
+    </div>
+    <div style="margin-top:10px">
+      {% for r in c.path_rules %}<code style="margin-right:6px">{{ r }}</code>{% endfor %}
+      {% for f in c.sample_files[:5] %}<span class="faint small mono" style="margin-right:10px">{{ f }}</span>{% endfor %}
+      {% if c.evidence_commit %}<span class="faint small mono">证据：{{ c.evidence_commit[:7] }}</span>{% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-head">
+    <h3>项目功能模块清单（{{ modules|length }} 个）</h3>
+    <a class="btn sm" href="/files?repo_id={{ rid }}">查看全部文件 →</a>
+  </div>
+  {% if not modules %}
+    <div class="empty"><div class="big">还没有模块清单</div>请先到<a href="/?repo_id={{ rid }}">仓库概览</a>执行「初始化扫描」。</div>
+  {% else %}
+  <div class="grid grid-2">
+    {% for m in modules %}
+    <div class="card" style="margin:0">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+        <div style="min-width:0">
+          <strong style="font-size:14px">{{ m.name }}</strong>
+          <div class="muted small" style="margin-top:5px">{{ m.one_liner or m.responsibility }}</div>
+        </div>
+        <div class="hero-tags">
+          <span class="badge badge-blue">{{ m.file_count }} 个文件</span>
+          <span class="badge badge-gray">{{ m.change_count or 0 }} 次变更</span>
+          <span class="badge {{ 'badge-gray' if m.status == 'dormant' else 'badge-green' }}">{{ '沉睡' if m.status == 'dormant' else '活跃' }}</span>
+        </div>
+      </div>
+      {% if m.evolution_line %}
+      <div class="evolution" style="margin-top:12px">
+        <span class="lbl">职责演进</span>{{ m.evolution_line }}
+      </div>
+      {% endif %}
+      <div style="margin-top:10px">
+        {% for r in m.path_rules %}<code style="display:inline-block;margin:0 5px 5px 0">{{ r }}</code>{% else %}<span class="muted small">未指定</span>{% endfor %}
+      </div>
+      <div class="btn-row" style="margin-top:12px">
+        <a class="btn sm primary" href="/modules/{{ m.id }}?repo_id={{ rid }}">模块变更历史 →</a>
+        <a class="btn sm" href="/files?repo_id={{ rid }}&module={{ m.name|urlencode }}">下钻文件 →</a>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h3>模块与文件的关系</h3>
+  <div class="small muted">
+    模块是<strong>功能视角</strong>：冷启动时按目录结构与历史共变关系识别，之后每次提交都会更新该模块的职责演进主线与能力变化。
+    文件是<strong>实现视角</strong>：每个文件有独立的一句话职责、功能说明与代码块级时间线。
+    新增源码若不属于任何现有模块，会自动出现在本页顶部的「候选」区，人工确认后正式建模块。
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function confirmCandidate(id, name) {
+  const input = prompt('确认新功能模块名称（可直接回车使用建议名称）：', name);
+  if (input === null) return;
+  try {
+    const r = await api('/api/module-candidates/' + id + '/confirm', {
+      method: 'POST', body: { name: input.trim() }
+    });
+    toast('已建立模块「' + r.name + '」，归属 ' + r.file_count + ' 个文件');
+    location.reload();
+  } catch (e) { toast(e.message, true); }
+}
+async function ignoreCandidate(id) {
+  if (!confirm('忽略这个新功能候选？后续相同路径仍会再次提示。')) return;
+  try {
+    await api('/api/module-candidates/' + id + '/ignore', { method: 'POST' });
+    toast('已忽略');
+    location.reload();
+  } catch (e) { toast(e.message, true); }
+}
+</script>
+{% endblock %}

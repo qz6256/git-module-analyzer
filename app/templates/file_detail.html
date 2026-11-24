@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}{{ f.path }} · 变更历史{% endblock %}
+{% block heading %}单文件变更历史{% endblock %}
+{% block subtitle %}当前职责 · 演进主线 · 每次改动的代码块 · 文档更新 · 可回溯的 Git 提交{% endblock %}
+
+{% block content %}
+<div class="hero-card">
+  <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start">
+    <div style="min-width:0">
+      <div class="hero-path">{{ f.path }}</div>
+      <div class="hero-oneliner">{{ f.one_liner }}</div>
+    </div>
+    <div class="hero-tags">
+      <span class="badge badge-blue">{{ f.module_name }}</span>
+      <span class="badge badge-gray">{{ f.language }}</span>
+      <span class="badge {{ f.risk_level|risk_class }}">{{ f.risk_level }}风险</span>
+      <span class="badge badge-gray">{{ f.change_count }} 个变更节点</span>
+    </div>
+  </div>
+  <div style="margin-top:14px" class="evolution">
+    <span class="lbl">职责演进主线（跨提交归纳）</span>
+    {{ f.evolution_line or '暂无足够节点归纳主线，执行更多同步后自动生成。' }}
+  </div>
+</div>
+
+<div class="split">
+  <div>
+    <div class="card">
+      <div class="card-head">
+        <h3>变更时间线（{{ events|length }} 个节点）</h3>
+        <a class="btn sm" href="/commits?repo_id={{ rid }}&file={{ f.path|urlencode }}">相关提交检索 →</a>
+      </div>
+
+      <form class="filters" method="get" action="/files/{{ f.id }}">
+        <input type="hidden" name="repo_id" value="{{ rid }}">
+        <select name="branch">
+          <option value="">全部分支</option>
+          {% for b in branches %}<option value="{{ b }}" {{ 'selected' if branch == b else '' }}>{{ b }}</option>{% endfor %}
+        </select>
+        <select name="risk">
+          <option value="">全部风险</option>
+          {% for r in ['低','中','高'] %}<option value="{{ r }}" {{ 'selected' if risk == r else '' }}>{{ r }}风险</option>{% endfor %}
+        </select>
+        <input type="text" name="author" value="{{ author }}" placeholder="提交人" style="min-width:120px">
+        <button class="btn sm" type="submit">筛选</button>
+        <a class="btn sm" href="/files/{{ f.id }}?repo_id={{ rid }}">重置</a>
+      </form>
+
+      {% if not events %}
+        <div class="empty"><div class="big">暂无变更节点</div>
+          低信号提交（纯格式化、锁文件、仅注释）会被过滤，不会污染时间线。<br>
+          执行「增量同步」后有新的结构性改动即会出现在这里。</div>
+      {% else %}
+      <div class="timeline">
+        {% for e in events %}
+        <div class="tl-item">
+          <div class="tl-dot {{ 'high' if e.risk_level == '高' else ('mid' if e.risk_level == '中' else '') }}"></div>
+          <div class="tl-head">
+            {% if commit_base %}
+              <a class="tl-sha" href="{{ commit_base }}/commit/{{ e.commit_sha }}" target="_blank" title="在仓库 Web 端查看该提交">{{ e.commit_sha|short_sha }} ↗</a>
+            {% else %}
+              <span class="tl-sha" title="{{ e.commit_sha }}">{{ e.commit_sha|short_sha }}</span>
+            {% endif %}
+            <span class="badge {{ e.risk_level|risk_class }}">{{ e.risk_level }}风险</span>
+            <span class="badge badge-gray">{{ e.branch }}</span>
+            <span class="tl-meta">{{ e.author }} · {{ e.committed_at|dt }}</span>
+            <button class="btn sm" onclick="copyText('{{ e.commit_sha }}', this)">复制 SHA</button>
+          </div>
+
+          <div class="tl-body">
+            {% if e.commit_message.strip() %}
+            <div class="tl-row"><span class="tl-label">提交说明</span><span class="mono small">{{ e.commit_message.strip()|truncate(180) }}</span></div>
+            {% endif %}
+            <div class="tl-row"><span class="tl-label">改动结论</span>{{ e.summary }}</div>
+
+            {% if e.blocks %}
+            <div class="tl-row"><span class="tl-label">改动代码块</span>
+              <span class="badge badge-gray">{{ e.diff_stats.get('precision', 'function') }} 级精度</span>
+              <span class="faint small">+{{ e.diff_stats.get('added', 0) }} / -{{ e.diff_stats.get('deleted', 0) }} 行</span>
+            </div>
+            <div class="blocks">
+              {% for b in e.blocks %}
+              <div class="block">
+                <span class="bn">{{ b.name }}</span>
+                <span class="badge {{ 'badge-green' if b.change_type == 'added' else ('badge-red' if b.change_type == 'removed' else 'badge-gray') }}">{{ {'added':'新增','removed':'删除','modified':'修改','signature_changed':'签名变更','refactored':'重构'}.get(b.change_type, '修改') }}</span>
+                <span class="bd">{{ b.description }}</span>
+                {% if b.precision == 'hunk' %}<span class="faint">（hunk 级降级）</span>{% endif %}
+              </div>
+              {% endfor %}
+            </div>
+            {% endif %}
+
+            <div class="tl-row"><span class="tl-label">文档更新</span>{{ e.doc_update }}</div>
+            <div class="tl-row"><span class="tl-label">改动动机</span>
+              <span class="{{ 'faint' if e.evidence_source == '未知' else '' }}">{{ e.motivation }}</span>
+              <span class="badge badge-gray" title="证据来源">证据：{{ e.evidence_source }}</span>
+              <span class="faint small">· {{ e.analysis_mode }}</span>
+            </div>
+            {% set refs = issue_by_sha.get(e.commit_sha, []) %}
+            {% if refs %}
+            <div class="tl-row"><span class="tl-label">关联事项</span>
+              {% for r in refs %}
+              <a class="badge badge-blue" href="/issues/{{ r.issue_id }}?repo_id={{ rid }}" title="{{ r.title }}">{{ r.external_id }} · {{ r.link_type_cn }}</a>
+              {% endfor %}
+              <span class="faint small">（点击可查看证据评级与原始描述）</span>
+            </div>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <div class="card-head">
+        <h3>当前态功能说明</h3>
+        <div class="btn-row">
+          <button class="btn sm" onclick="copyText(document.getElementById('raw-doc').textContent, this)">复制原文</button>
+          <a class="btn sm" href="/api/files/{{ f.id }}/doc" target="_blank">查看 JSON</a>
+        </div>
+      </div>
+      <div class="md-body">{{ doc_html|safe }}</div>
+      <div class="faint small" style="margin-top:14px;border-top:1px solid var(--border);padding-top:10px">
+        档案文件：{{ f.baseline_doc_path or '未落盘' }}
+        {% if doc_disk_exists %}<span class="badge badge-green">已写入磁盘</span>{% endif %}
+        <br>每次增量同步都会按本次改动修订此文档，避免与代码脱节。
+      </div>
+      <pre id="raw-doc" style="display:none">{{ f.current_doc }}</pre>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h3>关联需求 / 缺陷（{{ related_issues|length }}）</h3>
+        <a class="btn sm" href="/issues?repo_id={{ rid }}">全部事项 →</a>
+      </div>
+      {% if not related_issues %}
+        <div class="small muted">该文件的历次提交尚未关联到任何登记事项。登记需求并填写相关路径后，这里会出现可点击的原始描述与证据评级。</div>
+      {% else %}
+        {% for r in related_issues %}
+        <div class="issue-ref">
+          <a href="/issues/{{ r.id }}?repo_id={{ rid }}"><strong>{{ r.external_id }}</strong> · {{ r.title|truncate(46) }}</a>
+          <div style="margin-top:5px">
+            <span class="badge {{ 'badge-red' if r.issue_type == 'bug' else 'badge-blue' }}">{{ '缺陷' if r.issue_type == 'bug' else '需求' }}</span>
+            <span class="badge {{ 'badge-green' if r.best == 'strong' else ('badge-amber' if r.best == 'review' else 'badge-gray') }}">{{ r.best_label or '证据不足' }}</span>
+          </div>
+        </div>
+        {% endfor %}
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h3>这张卡片回答了什么</h3>
+      <div class="small muted">
+        <div class="kv"><span class="k">不是</span><span>git log -p 的 diff 罗列</span></div>
+        <div class="kv"><span class="k">而是</span><span>把这个文件历次改动串成职责演进主线，回答「为什么是现在这个样子」</span></div>
+        <div class="kv"><span class="k">证据</span><span>动机仅取自提交说明/PR；证据不足明确标注「原因未知」，绝不脑补</span></div>
+        <div class="kv"><span class="k">精度</span><span>代码块定位到函数/类，识别不到时降级为 hunk 并标注</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

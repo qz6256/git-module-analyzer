@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block title %}仓库概览 · 文件变更历史知识库{% endblock %}
+{% block heading %}仓库概览{% endblock %}
+{% block subtitle %}初始化建档 → 增量同步 → 拉出任意文件看它的演进主线{% endblock %}
+
+{% block content %}
+<div class="grid grid-4">
+  <div class="metric"><div class="label">已接入仓库</div><div class="value">{{ stats.repos }}</div></div>
+  <div class="metric"><div class="label">文件档案</div><div class="value">{{ stats.files }}</div></div>
+  <div class="metric"><div class="label">变更时间线节点</div><div class="value">{{ stats.events }}</div></div>
+  <div class="metric"><div class="label">已分析提交</div><div class="value">{{ stats.commits }}</div></div>
+</div>
+
+<div class="card" style="margin-top:18px">
+  <div class="card-head">
+    <h3>已接入的 Git 仓库</h3>
+    <div class="btn-row">
+      <button class="btn primary" data-action onclick="openModal('modal-add')">+ 添加仓库</button>
+      {% if active_repo %}
+      <button class="btn" data-action onclick="runAction('initialize', {{ rid }})">初始化扫描</button>
+      <button class="btn" data-action onclick="runAction('sync', {{ rid }})">一键增量同步</button>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="progress-wrap" id="progress-wrap">
+    <div class="progress-track"><div class="progress-bar" id="progress-bar"></div></div>
+    <div class="progress-msg" id="progress-msg">准备中…</div>
+    <div class="progress-logs" id="progress-logs"></div>
+  </div>
+
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>仓库</th><th>来源</th><th>分支</th><th>状态</th><th>文件</th><th>已分析提交</th><th>最近分析</th><th style="width:190px">操作</th></tr></thead>
+    <tbody>
+    {% for r in repo_rows %}
+      <tr>
+        <td><a href="/?repo_id={{ r.id }}">{{ r.name }}</a></td>
+        <td class="small"><span class="badge {{ 'badge-blue' if r.source_type == 'remote' else 'badge-gray' }}">{{ '远程' if r.source_type == 'remote' else '本地' }}</span>
+          <div class="faint mono" style="margin-top:4px;word-break:break-all;max-width:250px">{{ r.source }}</div></td>
+        <td class="small">{{ r.branches|join(', ') }}</td>
+        <td><span class="badge {{ 'badge-green' if r.status == 'ready' else ('badge-red' if r.status == 'error' else 'badge-amber') }}">{{ r.status }}</span>
+          {% if r.status_message %}<div class="faint small" style="margin-top:4px;max-width:220px">{{ r.status_message }}</div>{% endif %}</td>
+        <td>{{ r.files }}</td><td>{{ r.commits }}</td><td class="small">{{ r.last_analyzed_at }}</td>
+        <td>
+          <div class="btn-row">
+            <button class="btn sm" data-action onclick="runAction('initialize', {{ r.id }})">初始化</button>
+            <button class="btn sm" data-action onclick="runAction('sync', {{ r.id }})">同步</button>
+            <button class="btn sm danger" onclick="deleteRepo({{ r.id }}, '{{ r.name }}')">删除</button>
+          </div>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="8">
+        <div class="empty"><div class="big">还没有接入任何仓库</div>
+          点击右上角「添加仓库」，填入本地 Git 路径或远程地址，然后执行「初始化扫描」。<br>
+          <span class="small">未配置 LLM 也能完整跑通：系统会自动使用本地规则模式生成档案与时间线。</span>
+        </div>
+      </td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+{% if active_repo %}
+<div class="card" style="margin-top:14px">
+  <div class="card-head"><h3>需求 / 缺陷追溯</h3>
+    <a class="btn sm" href="/issues?repo_id={{ rid }}">打开追溯台 →</a>
+  </div>
+  <div class="small muted">
+    已登记 <strong>{{ stats.issues }}</strong> 条事项 · 自动关联 <strong>{{ stats.issue_links }}</strong> 条提交 ·
+    待人工确认 <strong>{{ stats.pending_issue_reviews }}</strong> 条推测关联。
+    {% if recent_issues %}
+      <span style="margin-left:8px">最近登记：
+      {% for it in recent_issues %}<a class="badge badge-blue" href="/issues/{{ it.id }}?repo_id={{ rid }}">{{ it.external_id }}</a> {% endfor %}</span>
+    {% endif %}
+    <div style="margin-top:6px">登记事项后，文件/模块档案里原本「原因未知」的改动动机会升级为可点击的需求来源。</div>
+  </div>
+</div>
+
+<div class="grid grid-2" style="margin-top:18px">
+  <div class="card">
+    <div class="card-head"><h3>当前仓库运行信息</h3></div>
+    <div class="kv"><span class="k">本地路径</span><span class="mono small" style="word-break:break-all">{{ active_repo.local_path or '（尚未克隆）' }}</span></div>
+    <div class="kv"><span class="k">监控分支</span><span>{{ active_repo.branches|join(', ') }}</span></div>
+    <div class="kv"><span class="k">分析模式</span><span class="badge {{ 'badge-blue' if llm_mode == 'LLM' else 'badge-amber' }}">{{ llm_mode }}</span></div>
+    <div class="kv"><span class="k">低信号过滤</span><span>已过滤 {{ stats.filtered }} 条提交</span></div>
+    <div class="kv"><span class="k">分支水位线</span><span>{{ stats.branches }} 条</span></div>
+    <div class="btn-row" style="margin-top:14px">
+      <a class="btn sm" href="/files?repo_id={{ rid }}">浏览文件档案 →</a>
+      <a class="btn sm" href="/settings?repo_id={{ rid }}">配置 LLM 接口 →</a>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h3>最近的变更节点</h3><a class="btn sm" href="/commits?repo_id={{ rid }}">查看全部</a></div>
+    {% for e in recent_events %}
+      <div class="issue-ref" style="padding:8px 0">
+        <div class="small"><span class="mono">{{ e.commit_sha|short_sha }}</span>
+          <span class="badge {{ e.risk_level|risk_class }}">{{ e.risk_level }}风险</span>
+          <span class="faint">{{ e.author }} · {{ e.committed_at|dt }}</span></div>
+        <div style="margin-top:3px">{{ e.summary|truncate(90) }}</div>
+      </div>
+    {% else %}
+      <div class="empty small">暂无变更节点，执行初始化扫描或增量同步后生成。</div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<div class="card" style="margin-top:18px">
+  <h3>四步跑通</h3>
+  <div class="grid grid-4 small">
+    <div><strong>1 · 添加仓库</strong><div class="muted" style="margin-top:5px">本地路径或远程地址，指定监控分支，自动探测主分支。</div></div>
+    <div><strong>2 · 初始化扫描</strong><div class="muted" style="margin-top:5px">目录测绘 + 共变聚类 + 每个文件生成基线档案，回溯历史高信号提交。</div></div>
+    <div><strong>3 · 增量同步</strong><div class="muted" style="margin-top:5px">只分析水位线之后的新提交，代码块级归档并刷新当前态说明。</div></div>
+    <div><strong>4 · 查看文件</strong><div class="muted" style="margin-top:5px">拉出任意文件，看职责演进主线、时间线与可跳转的 Git 提交。</div></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block modals %}
+<div id="modal-add" class="modal-mask">
+  <div class="modal">
+    <h3>添加 Git 仓库</h3>
+    <form id="form-add">
+      <div class="field">
+        <label>接入方式</label>
+        <select id="in-type">
+          <option value="local">本地 Git 仓库路径</option>
+          <option value="remote">远程地址（HTTPS / SSH）</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>路径或地址</label>
+        <input type="text" id="in-source" required placeholder="D:\code\my-project 或 https://github.com/org/repo.git">
+        <div class="hint">本地路径需为已存在的 Git 仓库（含 .git）；远程地址由工具克隆到 workspace 下。</div>
+      </div>
+      <div class="field"><label>显示名称（可选）</label><input type="text" id="in-name" placeholder="留空则自动取目录名"></div>
+      <div class="grid grid-2">
+        <div class="field"><label>默认分支</label><input type="text" id="in-branch" value="main" placeholder="main"></div>
+        <div class="field"><label>其他监控分支（逗号分隔，可选）</label><input type="text" id="in-branches" placeholder="develop, release/1.0"></div>
+      </div>
+      <div class="hint">本地仓库会自动探测当前分支并加入监控列表。</div>
+      <div class="modal-foot">
+        <button type="button" class="btn" onclick="closeModal('modal-add')">取消</button>
+        <button type="submit" class="btn primary" id="btn-add-save">添加仓库</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

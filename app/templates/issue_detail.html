@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+{% block title %}{{ issue.external_id }} · 需求缺陷追溯{% endblock %}
+{% block heading %}需求 / 缺陷追溯详情{% endblock %}
+{% block subtitle %}关联提交 · 证据充分性评级 · 影响文件与模块 · 可人工纠错{% endblock %}
+
+{% block content %}
+<div class="hero-card">
+  <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start">
+    <div style="min-width:0">
+      <div class="hero-path">{{ issue.external_id }} · {{ issue.title or '（无标题）' }}</div>
+      <div class="hero-oneliner">{{ issue.description|truncate(150) or '登记时未提供原始描述，改动动机只能来自提交说明与 diff 推断。' }}</div>
+    </div>
+    <div class="hero-tags">
+      <span class="badge {{ 'badge-red' if issue.issue_type == 'bug' else 'badge-blue' }}">{{ '缺陷 bug' if issue.issue_type == 'bug' else '需求 story' }}</span>
+      <span class="badge badge-gray">{{ {'open':'待处理','resolved':'已解决','closed':'已关闭'}.get(issue.status, issue.status) }}</span>
+      <span class="badge badge-gray">来源：{{ issue.source }}</span>
+      {% if issue.external_url %}<a class="badge badge-blue" href="{{ issue.external_url }}" target="_blank">打开外部单据 ↗</a>{% endif %}
+    </div>
+  </div>
+  <div style="margin-top:12px" class="evolution">
+    <span class="lbl">追溯链</span>
+    需求单据（为什么改） → 关联提交（谁在什么时候改） → 代码块 / 文件 / 模块档案（改了什么）
+  </div>
+</div>
+
+<div class="grid grid-4" style="margin:16px 0">
+  <div class="metric"><div class="label">关联提交</div><div class="value">{{ summary.total }}</div></div>
+  <div class="metric"><div class="label">已确认 / 待确认</div><div class="value">{{ summary.confirmed }} / {{ summary.pending }}</div></div>
+  <div class="metric"><div class="label">较强证据</div><div class="value">{{ summary.strong }}</div></div>
+  <div class="metric"><div class="label">需人工复核</div><div class="value">{{ summary.review }}</div></div>
+</div>
+
+<div class="split">
+  <div>
+    <div class="card">
+      <div class="card-head">
+        <h3>关联提交时间线（{{ links|length }} 条）</h3>
+        <a class="btn sm" href="/commits?repo_id={{ rid }}">提交分析 →</a>
+      </div>
+
+      {% if not links %}
+        <div class="empty"><div class="big">尚未关联到任何提交</div>
+          可能原因：提交说明没写编号且语义不匹配，或该事项登记后还没重跑关联。<br>
+          可在需求清单页点「重跑关联」，或登记更准确的「相关路径」。</div>
+      {% else %}
+      <div class="timeline">
+        {% for l in links %}
+        <div class="tl-item">
+          <div class="tl-dot {{ 'high' if l.review_status == 'rejected' else ('mid' if l.assessment == 'review' else '') }}"></div>
+          <div class="tl-head">
+            {% if commit_base %}
+              <a class="tl-sha" href="{{ commit_base }}/commit/{{ l.commit_sha }}" target="_blank">{{ l.sha_short }} ↗</a>
+            {% else %}
+              <span class="tl-sha" title="{{ l.commit_sha }}">{{ l.sha_short }}</span>
+            {% endif %}
+            <span class="badge {{ 'badge-blue' if l.link_type == 'explicit' else ('badge-amber' if l.link_type == 'semantic' else 'badge-gray') }}">{{ l.link_type_cn }}</span>
+            <span class="badge badge-gray">置信度 {{ l.confidence }}</span>
+            {% if l.review_status == 'confirmed' %}<span class="badge badge-green">已确认</span>
+            {% elif l.review_status == 'rejected' %}<span class="badge badge-red">已否决</span>
+            {% else %}<span class="badge badge-amber">待确认</span>{% endif %}
+            <span class="tl-meta">{{ l.commit.author if l.commit else '' }} · {{ (l.commit.committed_at[:16]|replace('T', ' ')) if l.commit and l.commit.committed_at else '' }}</span>
+            <button class="btn sm" onclick="copyText('{{ l.commit_sha }}', this)">复制 SHA</button>
+          </div>
+
+          <div class="tl-body">
+            {% if l.commit and l.commit.message.strip() %}
+            <div class="tl-row"><span class="tl-label">提交说明</span><span class="mono small">{{ l.commit.message.strip()|truncate(160) }}</span></div>
+            {% endif %}
+            {% if l.commit and l.commit.summary %}
+            <div class="tl-row"><span class="tl-label">代码分析</span>{{ l.commit.summary }}</div>
+            {% endif %}
+            <div class="tl-row"><span class="tl-label">关联依据</span>{{ l.evidence }}</div>
+
+            <div class="tl-row"><span class="tl-label">四项信号</span></div>
+            <div class="signal-grid">
+              {% for k, label in signal_labels.items() %}
+              <span class="sig {{ 'hit' if l.signals.get(k) else '' }}">{{ '✓' if l.signals.get(k) else '○' }} {{ label }}</span>
+              {% endfor %}
+            </div>
+            {% if l.signals.notes %}
+            <div class="faint small" style="margin-top:6px">
+              {% for n in l.signals.notes %}<div>· {{ n }}</div>{% endfor %}
+            </div>
+            {% endif %}
+
+            <div class="tl-row" style="margin-top:8px"><span class="tl-label">证据结论</span>
+              <span class="badge {{ 'badge-green' if l.assessment == 'strong' else ('badge-amber' if l.assessment == 'review' else 'badge-gray') }}">{{ l.assessment_label }}</span>
+              <span class="small">{{ l.assessment_note }}</span>
+            </div>
+            {% if l.llm_note %}<div class="tl-row"><span class="tl-label">AI 复核</span><span class="small">{{ l.llm_note }}</span></div>{% endif %}
+
+            {% if l.review_status == 'pending' %}
+            <div class="btn-row" style="margin-top:10px">
+              <button class="btn sm primary" onclick="reviewLink({{ l.id }}, 'confirm')">确认关联</button>
+              <button class="btn sm" onclick="reviewLink({{ l.id }}, 'reject')">否决（猜错了）</button>
+            </div>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h3>原始描述</h3></div>
+      <div class="md-body">{{ doc_html|safe }}</div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <div class="card-head"><h3>影响文件（{{ files|length }}）</h3></div>
+      {% if not files %}<div class="empty">暂无可跳转的文件档案。</div>{% else %}
+      <table>
+        <thead><tr><th>文件</th><th>模块</th></tr></thead>
+        <tbody>
+        {% for f in files %}
+          <tr><td><a class="mono small" href="/files/{{ f.id }}?repo_id={{ rid }}">{{ f.path }}</a></td>
+              <td class="small faint">{{ f.module_name or '—' }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h3>涉及功能模块（{{ module_links|length }}）</h3></div>
+      {% if not module_links %}<div class="empty small">暂无匹配的功能模块。</div>{% else %}
+      <div class="btn-row" style="flex-wrap:wrap">
+        {% for m in module_links %}<a class="badge badge-blue" href="/modules/{{ m.id }}?repo_id={{ rid }}">{{ m.name }} →</a>{% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h3>登记信息</h3>
+      <div class="small muted">
+        <div class="kv"><span class="k">编号</span><span class="mono">{{ issue.external_id }}</span></div>
+        <div class="kv"><span class="k">报告人</span><span>{{ issue.reporter or '—' }}</span></div>
+        <div class="kv"><span class="k">提出时间</span><span>{{ issue.occurred_at or '—' }}</span></div>
+        <div class="kv"><span class="k">相关路径</span><span>{% for p in issue.related_paths %}<code>{{ p }}</code> {% else %}未登记（判定力较弱）{% endfor %}</span></div>
+        <div class="kv"><span class="k">关键词</span><span>{% for k in issue.keywords[:12] %}<code>{{ k }}</code> {% else %}自动从标题提取{% endfor %}</span></div>
+      </div>
+      <div class="btn-row" style="margin-top:12px">
+        <a class="btn sm" href="/issues?repo_id={{ rid }}">← 返回清单</a>
+        <button class="btn sm" onclick="editPaths()">补登记相关路径</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>系统不会做什么</h3>
+      <div class="small muted">
+        <div class="kv"><span class="k">不判断</span><span>「这个 bug 是否真的修好了」——AI 看不到运行时行为</span></div>
+        <div class="kv"><span class="k">只评估</span><span>四项可验证信号的充分性，结论分三档，交开发者拍板</span></div>
+        <div class="kv"><span class="k">不替代</span><span>禅道/Jira 的状态流转；这里只补「需求 ↔ 提交」的追溯</span></div>
+        <div class="kv"><span class="k">可纠错</span><span>推测关联默认待确认，否决后不再自动重建</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function reviewLink(id, action) {
+  try {
+    const d = await api('/api/issue-links/' + id + '/' + action, { method: 'POST', body: {} });
+    toast(action === 'confirm' ? '已确认关联，证据评级已更新：' + d.assessment_label : '已否决，不再自动重建该关联');
+    setTimeout(() => location.reload(), 800);
+  } catch (e) { toast(e.message, true); }
+}
+
+async function editPaths() {
+  const cur = {{ issue.related_paths|tojson }}.join(', ');
+  const v = prompt('补登记相关路径（逗号分隔）。更精确的路径会显著提升「文件命中」信号与关联准确率：', cur);
+  if (v === null) return;
+  try {
+    await api('/api/issues/{{ issue.id }}', {
+      method: 'PUT',
+      body: { related_paths: v.split(/[,，\n]+/).map(s => s.trim()).filter(Boolean) }
+    });
+    toast('已保存，请到需求清单页点「重跑关联」重建证据');
+    setTimeout(() => location.reload(), 900);
+  } catch (e) { toast(e.message, true); }
+}
+</script>
+{% endblock %}
