@@ -1,5 +1,5 @@
 <template>
-  <div class="page">
+  <div class="page projects-page">
     <PageHeader title="项目工作台" subtitle="按项目组织仓库、模块、提交与需求缺陷的追溯链">
       <template #actions>
         <el-button v-if="canCreate" type="primary" :icon="Plus" @click="openCreate">
@@ -28,39 +28,104 @@
         :prefix-icon="Search"
         @keyup.enter="load"
       />
-      <el-button :icon="Search" @click="load">查询</el-button>
-      <el-button @click="resetFilters">重置</el-button>
+      <div class="filter-actions">
+        <el-button :icon="Search" @click="load">查询</el-button>
+        <el-button @click="resetFilters">重置</el-button>
+      </div>
     </div>
 
-    <div v-loading="loading">
-      <div v-if="projects.length" class="grid grid-3">
-        <el-card
-          v-for="project in projects"
-          :key="project.id"
-          class="project-card"
-          shadow="never"
-          @click="openProject(project.id)"
-        >
-          <div class="flex justify-between items-center gap-2">
-            <span class="project-name">{{ project.name }}</span>
-            <span class="badge" :class="statusTone(project.status)">
-              {{ statusLabel(project.status) }}
-            </span>
+    <div v-loading="loading" class="projects-workbench">
+      <template v-if="projects.length">
+        <div class="overview-strip">
+          <div class="overview-item">
+            <span class="ov-label">项目</span>
+            <span class="ov-value">{{ projects.length }}</span>
           </div>
-          <div class="small muted" style="margin-top: 6px">
-            {{ [project.city, project.business_domain, project.department].filter(Boolean).join(' · ') || '未填写分类信息' }}
+          <div class="overview-item">
+            <span class="ov-label">模块</span>
+            <span class="ov-value">{{ totals.module_count }}</span>
           </div>
-          <div class="small faint" style="margin-top: 8px; min-height: 34px">
-            {{ project.description || '暂无项目描述' }}
+          <div class="overview-item">
+            <span class="ov-label">文件</span>
+            <span class="ov-value">{{ totals.file_count }}</span>
           </div>
-          <div class="project-stats">
-            <div class="project-stat"><span class="n">{{ project.stats?.module_count ?? 0 }}</span><span class="l">模块</span></div>
-            <div class="project-stat"><span class="n">{{ project.stats?.file_count ?? 0 }}</span><span class="l">文件</span></div>
-            <div class="project-stat"><span class="n">{{ project.stats?.commit_count ?? 0 }}</span><span class="l">提交</span></div>
-            <div class="project-stat"><span class="n">{{ project.stats?.pending_links ?? 0 }}</span><span class="l">待确认</span></div>
+          <div class="overview-item">
+            <span class="ov-label">提交</span>
+            <span class="ov-value">{{ totals.commit_count }}</span>
           </div>
-        </el-card>
-      </div>
+          <div class="overview-item">
+            <span class="ov-label">需求 / 缺陷</span>
+            <span class="ov-value">{{ totals.issue_count }}</span>
+          </div>
+          <div class="overview-item" :class="{ 'is-warn': totals.pending_links > 0 }">
+            <span class="ov-label">待确认关联</span>
+            <span class="ov-value">{{ totals.pending_links }}</span>
+          </div>
+        </div>
+
+        <div class="project-grid">
+          <article
+            v-for="project in projects"
+            :key="project.id"
+            class="project-card"
+            tabindex="0"
+            @click="openProject(project.id)"
+            @keydown.enter="openProject(project.id)"
+          >
+            <header class="pc-head">
+              <div class="pc-title-wrap">
+                <h3 class="pc-title">{{ project.name }}</h3>
+                <span v-if="project.code" class="pc-code mono">{{ project.code }}</span>
+              </div>
+              <span class="badge" :class="statusTone(project.status)">
+                {{ statusLabel(project.status) }}
+              </span>
+            </header>
+
+            <div class="pc-meta">
+              <span>
+                {{ [project.city, project.business_domain, project.department].filter(Boolean).join(' · ') || '未填写分类信息' }}
+              </span>
+              <span v-if="project.updated_at" class="pc-updated">更新于 {{ formatDate(project.updated_at) }}</span>
+            </div>
+
+            <p class="pc-desc">{{ project.description || '暂无项目描述' }}</p>
+
+            <div v-if="project.tags?.length" class="pc-tags">
+              <span v-for="tag in project.tags" :key="tag" class="pc-tag">{{ tag }}</span>
+            </div>
+
+            <div class="pc-stats">
+              <div class="pc-stat">
+                <span class="pc-stat-n">{{ project.stats?.module_count ?? 0 }}</span>
+                <span class="pc-stat-l">模块</span>
+              </div>
+              <div class="pc-stat">
+                <span class="pc-stat-n">{{ project.stats?.file_count ?? 0 }}</span>
+                <span class="pc-stat-l">文件</span>
+              </div>
+              <div class="pc-stat">
+                <span class="pc-stat-n">{{ project.stats?.commit_count ?? 0 }}</span>
+                <span class="pc-stat-l">提交</span>
+              </div>
+              <div class="pc-stat">
+                <span class="pc-stat-n">{{ project.stats?.issue_count ?? 0 }}</span>
+                <span class="pc-stat-l">需求</span>
+              </div>
+              <div class="pc-stat" :class="{ 'is-warn': (project.stats?.pending_links ?? 0) > 0 }">
+                <span class="pc-stat-n">{{ project.stats?.pending_links ?? 0 }}</span>
+                <span class="pc-stat-l">待确认</span>
+              </div>
+            </div>
+
+            <footer class="pc-foot">
+              <span>查看项目追溯链</span>
+              <span class="pc-foot-arrow">→</span>
+            </footer>
+          </article>
+        </div>
+      </template>
+
       <EmptyState v-else title="暂无项目" description="调整筛选条件，或新建一个项目">
         <el-button v-if="canCreate" type="primary" @click="openCreate">新建项目</el-button>
       </EmptyState>
@@ -132,6 +197,18 @@ const domainOptions = computed(() =>
 )
 const canCreate = computed(() => auth.isAdmin || auth.hasRole('project_owner'))
 
+const totals = computed(() => {
+  const result = { module_count: 0, file_count: 0, commit_count: 0, issue_count: 0, pending_links: 0 }
+  for (const project of projects.value) {
+    result.module_count += project.stats?.module_count ?? 0
+    result.file_count += project.stats?.file_count ?? 0
+    result.commit_count += project.stats?.commit_count ?? 0
+    result.issue_count += project.stats?.issue_count ?? 0
+    result.pending_links += project.stats?.pending_links ?? 0
+  }
+  return result
+})
+
 async function load() {
   loading.value = true
   try {
@@ -160,6 +237,14 @@ function statusTone(status?: ProjectStatus | string) {
   if (status === 'planning') return 'badge-blue'
   if (status === 'archived') return 'badge-gray'
   return 'badge-gray'
+}
+
+function formatDate(value?: string) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
 function openProject(id: number) {

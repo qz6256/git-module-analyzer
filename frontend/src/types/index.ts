@@ -83,11 +83,13 @@ export interface ProjectStats {
   file_count: number
   commit_count: number
   pending_links: number
+  issue_count?: number
 }
 
 export interface Project {
   id: number
   name: string
+  code?: string
   city?: string
   department?: string
   business_domain?: string
